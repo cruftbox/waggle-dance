@@ -12,7 +12,7 @@ from discord import app_commands
 
 from . import ingest
 from .config import ConfigError
-from .discord_io import EMBED_DESCRIPTION_LIMIT, text_file
+from .discord_io import text_file
 from .orchestrator import MAX_DEBATE_ROUNDS, Busy, Paused, Session
 from .prompts import ROLE_PRESETS
 
@@ -21,7 +21,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-MODE_LABELS = {"review": "Review request", "recommend": "Recommendation request", "discuss": "Discussion topic"}
 SEARCH_DEFAULT = {"review": False, "recommend": True, "discuss": False}
 MODAL_TEXT_LIMIT = 4000
 
@@ -44,6 +43,8 @@ In a session thread:
 `/export` transcript as Markdown and JSON
 `/pause` and `/resume` stop the current command and block new ones, then allow them again
 `/close [mode] [summarizer]` end the session (permanent)
+
+A plain message in the bot's channel starts a discussion, like `/discuss` with all models and search off. Attach a .txt, .md, or .pdf to include it.
 
 Plain messages in a thread are added to the transcript (the bot reacts with an eyes emoji). Start a message with a model name and a colon, like `claude: why?`, to ask that model directly.
 
@@ -134,47 +135,17 @@ def register(bot: "WaggleBot") -> None:
 
     # Starting a session
 
-    async def post_submission(thread: discord.Thread, mode: str, body: str, source_url: str | None) -> None:
-        embed = discord.Embed(title=MODE_LABELS[mode], color=0x2B2D31)
-        file = None
-        if len(body) <= EMBED_DESCRIPTION_LIMIT:
-            embed.description = body
-        else:
-            embed.description = body[:1500].rstrip() + "\n\n(Full text attached.)"
-            file = text_file(body, "submission.md")
-        if source_url:
-            embed.add_field(name="Source", value=source_url[:1024], inline=False)
-        embed.set_footer(text=f"Submitted by {bot.settings.owner_name}")
-        if file:
-            await thread.send(embed=embed, file=file)
-        else:
-            await thread.send(embed=embed)
-
     async def begin(interaction: discord.Interaction, mode: str, topic: str, submission: str, context: str,
                     models: list[str], search: bool, title_text: str, fallback: str,
                     source_url: str | None = None) -> None:
-        """Create the thread and session, post the submission, and start the opening round.
-
-        The interaction must already be deferred.
-        """
-        title = await orch.make_title(title_text, fallback)
-        thread = await bot.channel.create_thread(
-            name=title, type=discord.ChannelType.public_thread, auto_archive_duration=10080
-        )
-        if mode == "recommend":
-            body = submission + (f"\n\n{context}" if context else "")
-        elif mode == "review":
-            body = submission + (f"\n\n**Context:** {context}" if context else "")
-        else:
-            body = topic if submission == topic else f"{topic}\n\n{submission}"
-        await post_submission(thread, mode, body, source_url)
-        s = orch.create_session(thread.id, mode, topic, title, submission, context, models, search)
+        """Start a session from a slash command. The interaction must already be deferred."""
+        thread, _s = await bot.start_session(mode, topic, submission, context, models, search, title_text,
+                                             fallback, source_url=source_url)
         names = orch.names()
         await interaction.followup.send(
             f"Started {thread.mention} with {', '.join(names[k] for k in models)}. Search is "
             f"{'on' if search else 'off'}.", ephemeral=True,
         )
-        bot.run_in_thread(thread, lambda out: orch.opening(s, out))
 
     class ReviewModal(discord.ui.Modal, title="Review a post"):
         post = discord.ui.TextInput(label="Post text", style=discord.TextStyle.paragraph,

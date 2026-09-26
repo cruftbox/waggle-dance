@@ -11,9 +11,9 @@ from typing import Awaitable, Callable
 import discord
 from discord import app_commands
 
-from . import commands
+from . import commands, ingest
 from .config import Settings
-from .discord_io import ThreadOutput, get_webhook
+from .discord_io import EMBED_DESCRIPTION_LIMIT, ThreadOutput, get_webhook, text_file
 from .orchestrator import Busy, Orchestrator, Paused, Session
 
 log = logging.getLogger(__name__)
@@ -21,6 +21,7 @@ log = logging.getLogger(__name__)
 AUTO_CLOSE_CHECK_SECONDS = 600
 SEEN = "\N{EYES}"
 WAIT = "\N{HOURGLASS WITH FLOWING SAND}"
+MODE_LABELS = {"review": "Review request", "recommend": "Recommendation request", "discuss": "Discussion topic"}
 
 
 class WaggleBot(discord.Client):
@@ -88,6 +89,48 @@ class WaggleBot(discord.Client):
         self._background.add(task)
         task.add_done_callback(self._background.discard)
 
+    async def start_session(self, mode: str, topic: str, submission: str, context: str, models: list[str],
+                            search: bool, title_text: str, fallback: str, source_url: str | None = None,
+                            from_message: discord.Message | None = None) -> tuple[discord.Thread, Session]:
+        """Create the thread and session, post the submission, and start the opening round.
+
+        With from_message, the thread hangs off that channel message, which
+        already shows the question, so the submission is not posted again.
+        """
+        title = await self.orch.make_title(title_text, fallback)
+        if from_message is not None:
+            thread = await from_message.create_thread(name=title, auto_archive_duration=10080)
+        else:
+            thread = await self.channel.create_thread(
+                name=title, type=discord.ChannelType.public_thread, auto_archive_duration=10080
+            )
+            if mode == "recommend":
+                body = submission + (f"\n\n{context}" if context else "")
+            elif mode == "review":
+                body = submission + (f"\n\n**Context:** {context}" if context else "")
+            else:
+                body = topic if submission == topic else f"{topic}\n\n{submission}"
+            await self._post_submission(thread, mode, body, source_url)
+        s = self.orch.create_session(thread.id, mode, topic, title, submission, context, models, search)
+        self.run_in_thread(thread, lambda out: self.orch.opening(s, out))
+        return thread, s
+
+    async def _post_submission(self, thread: discord.Thread, mode: str, body: str, source_url: str | None) -> None:
+        embed = discord.Embed(title=MODE_LABELS[mode], color=0x2B2D31)
+        file = None
+        if len(body) <= EMBED_DESCRIPTION_LIMIT:
+            embed.description = body
+        else:
+            embed.description = body[:1500].rstrip() + "\n\n(Full text attached.)"
+            file = text_file(body, "submission.md")
+        if source_url:
+            embed.add_field(name="Source", value=source_url[:1024], inline=False)
+        embed.set_footer(text=f"Submitted by {self.settings.owner_name}")
+        if file:
+            await thread.send(embed=embed, file=file)
+        else:
+            await thread.send(embed=embed)
+
     async def close_session(self, thread: discord.Thread, s: Session, mode: str, summarizer: str | None) -> bool:
         """Close a session: closing record, exports, attach Markdown, lock and archive.
 
@@ -105,10 +148,13 @@ class WaggleBot(discord.Client):
         await thread.edit(locked=True, archived=True)
         return True
 
-    # Owner messages in session threads
+    # Owner messages: in the channel they start a discussion, in a thread they join the transcript
 
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot or message.webhook_id or not self.allowed(message.author):
+            return
+        if message.channel.id == self.settings.channel_id:
+            await self._discuss_from_message(message)
             return
         s = self.session_for(message.channel)
         if s is None or not message.content.strip():
@@ -121,6 +167,34 @@ class WaggleBot(discord.Client):
         await message.add_reaction(SEEN)
         if target:
             self.run_in_thread(message.channel, lambda out: self.orch.ask(s, target, None, out))
+
+    async def _discuss_from_message(self, message: discord.Message) -> None:
+        """A plain message in the channel starts a discussion, like /discuss with default options."""
+        if self.webhook is None:
+            return
+        topic = message.content.strip()
+        files = [a for a in message.attachments if a.filename.lower().endswith((".txt", ".md", ".markdown", ".pdf"))]
+        if not topic and not files:
+            return
+        material = []
+        try:
+            for a in files:
+                material.append(ingest.file_text(a.filename, await a.read()))
+        except ingest.IngestError as exc:
+            await message.reply(f"Could not read that attachment: {exc}.", mention_author=False)
+            return
+        if not topic:
+            topic = f"Discuss the attached file{'s' if len(files) > 1 else ''}."
+        submission = "\n\n".join(material) if material else topic
+        await message.add_reaction(SEEN)
+        try:
+            await self.start_session("discuss", topic, submission, "", self.orch.enabled_keys(), False,
+                                     topic if submission == topic else f"{topic}\n\n{submission}", topic,
+                                     from_message=message)
+        except Exception as exc:
+            log.exception("Could not start a session from message %s", message.id)
+            await message.reply(f"Could not start a discussion: {type(exc).__name__}: {str(exc)[:300]}",
+                                mention_author=False)
 
     def _addressed_model(self, s: Session, text: str) -> str | None:
         """Return the model key if text starts with a model name and a colon or comma."""

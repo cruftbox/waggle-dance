@@ -100,6 +100,11 @@ DEBATE = (
     "ones. Push back where you disagree, concede where you were wrong, and add anything important that is missing."
 )
 
+FOLLOW_UP = (
+    "{owner} just posted the latest message. Reply to it. If other participants have already replied to it "
+    "above, respond to their points as well instead of repeating them."
+)
+
 ASK = "{owner} asked you a question in the latest message. Answer it directly."
 
 ASK_WITH_QUESTION = "{owner} asks you: {question}\n\nAnswer it directly."

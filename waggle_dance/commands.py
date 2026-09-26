@@ -25,7 +25,7 @@ MODAL_TEXT_LIMIT = 4000
 
 HELP = """**waggle-dance**
 
-Type a message in this channel to start a conversation, or to follow up on the open one. Start a message with a model name and a colon, like `claude: why?`, to ask only that model. The bot reacts with an eyes emoji when it records your message. Attach a .txt, .md, or .pdf to the first message to include it.
+Type a message in this channel to start a conversation, or to follow up on the open one. Every model replies to a follow-up, one after another. Start a message with a model name and a colon, like `claude: why?`, to hear from only that model. The bot reacts with an eyes emoji when it records your message, or an hourglass if it is busy and the message was not recorded. Attach a .txt, .md, or .pdf to the first message to include it.
 
 Start a new conversation (closes the open one):
 `/new [topic]` start fresh, optionally with a topic

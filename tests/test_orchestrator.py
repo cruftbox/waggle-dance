@@ -204,3 +204,20 @@ async def test_title_uses_cheapest_model_and_falls_back(orch, providers, cfg):
     for p in providers.values():
         p.fail = True
     assert await orch.make_title("x", "a" * 150) == "a" * 97 + "..."
+
+
+async def test_follow_up_replies_in_turn_and_rotates(orch, providers, out):
+    s = new(orch)
+    orch.add_owner_message(s, "first follow-up")
+    await orch.follow_up(s, out)
+    assert [p[0] for p in out.posts] == MODELS
+    last = providers[MODELS[-1]].calls[-1]["messages"]
+    text = "\n".join(m["content"] for m in last)
+    assert "[Michael]: first follow-up" in text
+    for key in MODELS[:-1]:
+        assert f"[{orch.names()[key]}]: This is a mock reply" in text
+    assert all(p[3] == "" for p in out.posts)  # no label under plain replies
+
+    orch.add_owner_message(s, "second follow-up")
+    await orch.follow_up(s, out)
+    assert [p[0] for p in out.posts[4:]] == ["chatgpt", "gemini", "muse", "claude"]

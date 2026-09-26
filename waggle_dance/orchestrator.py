@@ -324,6 +324,19 @@ class Orchestrator:
             s.debate_round = rnd
             self._save(s)
 
+    async def follow_up(self, s: Session, out: Output) -> None:
+        """Every model replies to the owner's latest message, one after another.
+
+        Each sees the replies before its own. The first speaker rotates with
+        each follow-up so no model always goes first.
+        """
+        await self.warn_if_expensive(s, {k: 1 for k in s.models}, out)
+        owner_messages = sum(1 for e in s.entries if e.kind == "owner")
+        instruction = prompts.fill(prompts.FOLLOW_UP, owner=self.owner_name)
+        for key in rotate(s.models, max(owner_messages - 1, 0)):
+            async with out.typing():
+                await self._turn(s, key, *self.view(s, key, instruction), "reply", s.debate_round, out)
+
     async def ask(self, s: Session, key: str, question: str | None, out: Output) -> None:
         """One model answers. With question=None, the owner's latest message is the question."""
         await self.warn_if_expensive(s, {key: 1}, out)

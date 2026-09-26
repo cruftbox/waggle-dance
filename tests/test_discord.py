@@ -197,14 +197,28 @@ async def test_later_messages_are_follow_ups(orch):
     await settle(bot)
     s = orch.current()
     assert s.session_id == first.id
-    assert s.entries[-1].kind == "owner" and s.entries[-1].text == "What about green tea?"
     assert follow.reactions == [EYES]
-    assert len(bot.webhook.sent) == 4  # a plain follow-up does not trigger replies
+    # Every model replies to a plain follow-up.
+    assert len(bot.webhook.sent) == 8
+    assert [e.phase for e in s.entries[4:]] == ["owner", "reply", "reply", "reply", "reply"]
+    assert s.entries[4].text == "What about green tea?"
 
     ask = FakeMessage("claude: and oolong?")
     await bot.on_message(ask)
     await settle(bot)
-    assert bot.webhook.sent[-1]["username"] == "Claude" and len(bot.webhook.sent) == 5
+    assert bot.webhook.sent[-1]["username"] == "Claude" and len(bot.webhook.sent) == 9
+
+
+async def test_follow_up_while_busy_is_not_recorded(orch):
+    bot = make_bot(orch)
+    await bot.on_message(FakeMessage("Topic"))
+    await settle(bot)
+    s = orch.current()
+    orch.pause(s.session_id)
+    late = FakeMessage("one more thing")
+    await bot.on_message(late)
+    assert late.reactions == ["\N{HOURGLASS WITH FLOWING SAND}"]
+    assert all(e.text != "one more thing" for e in s.entries)
 
 
 async def test_first_message_with_attachment_uses_it_as_material(orch):

@@ -183,14 +183,18 @@ class WaggleBot(discord.Client):
             return
         if not message.content.strip():
             return
-        target = self._addressed_model(s, message.content)
-        if target and (self.orch.is_busy(s.session_id) or self.orch.is_paused(s.session_id)):
+        # A follow-up gets replies: from the named model, or from every model in turn.
+        # While a command is running or the conversation is paused, it is not recorded.
+        if self.orch.is_busy(s.session_id) or self.orch.is_paused(s.session_id):
             await message.add_reaction(WAIT)
             return
+        target = self._addressed_model(s, message.content)
         self.orch.add_owner_message(s, message.content.strip())
         await message.add_reaction(SEEN)
         if target:
             self.run_command(s, lambda out: self.orch.ask(s, target, None, out))
+        else:
+            self.run_command(s, lambda out: self.orch.follow_up(s, out))
 
     async def _discuss_from_message(self, message: discord.Message) -> None:
         """With no open conversation, a plain message starts one, like /discuss with default options."""

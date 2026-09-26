@@ -1,0 +1,29 @@
+# Secrets and runtime data
+.env
+data/
+
+# Local config and instructions (examples are committed)
+config/models.yaml
+instructions/shared.md
+instructions/models/*.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# SQLite
+*.db
+*.sqlite
+*.sqlite3
+
+# OS and editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

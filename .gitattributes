@@ -1,0 +1,8 @@
+# Store and check out text files with LF endings on every platform, so
+# shell scripts and config work inside the Linux container even when the
+# repo is cloned on Windows.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.pdf binary

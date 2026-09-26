@@ -1,0 +1,111 @@
+# waggle-dance model configuration.
+#
+# Copy to config/models.yaml (the bot does this on first start) and edit that
+# copy. Run /reload in Discord after editing.
+#
+# Model IDs and prices were checked against vendor docs on 2026-09-26. Vendors
+# change both. You maintain these values; see docs/PROVIDERS.md for sources.
+# Prices are USD per 1M tokens, and per single search call for per_search.
+
+# Hard cap on reply length, stated in the system prompt. URLs do not count.
+max_reply_chars: 2000
+
+# Post a warning when a session's estimated spend would pass this many dollars.
+session_cost_warning: 5.00
+
+# Per-call timeout in seconds. Searches are slow. Override per model below.
+timeout_seconds: 120
+
+# Regex replacements applied to model output before posting. Example that
+# replaces em dashes (U+2014) with a comma and a space:
+#   style_filters:
+#     - pattern: "\\s*\u2014\\s*"
+#       replace: ", "
+style_filters: []
+
+models:
+  claude:
+    enabled: true
+    display_name: Claude
+    provider: anthropic
+    model: claude-opus-5-5
+    api_key_env: ANTHROPIC_API_KEY
+    color: "#D97757"
+    avatar_url: ""
+    # Room for adaptive thinking plus the visible reply.
+    max_tokens: 16000
+    # Optional: low, medium, high, xhigh, max. Null uses the model default
+    # (medium on Opus 5.5). Thinking is always on for this model.
+    effort: null
+    # Server-side fallback if the model declines a request. Set to null to disable.
+    fallbacks: default
+    search:
+      tool: web_search_20260318
+      max_uses: 5
+    prices:
+      input: 4.00
+      output: 20.00
+      cached_input: 0.20
+      cache_write: 5.00   # 5-minute cache writes
+      per_search: 0.01    # $10 per 1,000 searches
+
+  chatgpt:
+    enabled: true
+    display_name: ChatGPT
+    provider: openai_responses
+    model: gpt-6-sol
+    api_key_env: OPENAI_API_KEY
+    base_url: ""
+    color: "#10A37F"
+    avatar_url: ""
+    # Includes reasoning tokens.
+    max_tokens: 16000
+    # Optional, passed as reasoning.effort. Omit for the model default.
+    reasoning_effort: null
+    prices:
+      input: 2.00
+      output: 10.00
+      cached_input: 0.20
+      per_search: 0.01    # $10 per 1,000 calls
+
+  gemini:
+    enabled: true
+    display_name: Gemini
+    provider: gemini
+    model: gemini-3.8-flash
+    api_key_env: GEMINI_API_KEY
+    color: "#4285F4"
+    avatar_url: ""
+    # Includes thinking tokens.
+    max_tokens: 16000
+    # Optional: minimal, low, medium, high. Omit for the model default (medium).
+    thinking_level: null
+    prices:
+      # Promotional rates through 2026-12-31. They double on 2027-01-01
+      # (1.50 / 7.50 / 0.15).
+      input: 0.75
+      output: 3.75
+      cached_input: 0.075
+      # 5,000 free searches per month across Gemini 3.x, then $14 per 1,000.
+      # This counts every search as paid, so estimates run high until you pass
+      # the free allowance.
+      per_search: 0.014
+
+  muse:
+    enabled: true
+    display_name: Muse Spark
+    provider: openai_responses
+    model: muse-spark-1.3
+    api_key_env: META_API_KEY
+    base_url: https://api.meta.ai/v1
+    color: "#0866FF"
+    avatar_url: ""
+    # Includes reasoning tokens.
+    max_tokens: 16000
+    # Optional: minimal, low, medium, high, xhigh, max. "none" returns a 400.
+    reasoning_effort: null
+    prices:
+      input: 1.25
+      output: 4.25
+      cached_input: 0.15
+      per_search: 0.0025  # $2.50 per 1,000 searches

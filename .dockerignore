@@ -1,0 +1,11 @@
+.git
+.env
+data/
+config/models.yaml
+instructions/shared.md
+instructions/models/*.md
+**/__pycache__
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/

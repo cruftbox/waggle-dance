@@ -1,0 +1,14 @@
+services:
+  waggle-dance:
+    build:
+      context: .
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
+    container_name: waggle-dance
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+      - ./instructions:/app/instructions

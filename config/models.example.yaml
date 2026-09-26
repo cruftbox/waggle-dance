@@ -40,7 +40,10 @@ models:
     # Server-side fallback if the model declines a request. Set to null to disable.
     fallbacks: default
     search:
-      tool: web_search_20260318
+      # The basic tool. web_search_20260318 adds dynamic filtering, but in
+      # testing it returned no structured citations and read about 2.4x the
+      # input tokens.
+      tool: web_search_20250305
       max_uses: 5
     prices:
       input: 4.00

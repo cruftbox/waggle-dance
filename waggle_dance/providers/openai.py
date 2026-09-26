@@ -65,19 +65,26 @@ class ResponsesProvider:
         if resp.error:
             raise ProviderError(f"error: {resp.error.message}")
 
+        # A search turn can contain several message items: short progress notes
+        # between searches, then the answer. Keep only the last message's text.
         citations: list[dict] = []
         search_calls = 0
+        last_text = ""
         for item in resp.output:
             if item.type == "web_search_call":
                 search_calls += 1
             elif item.type == "message":
+                parts = []
                 for part in item.content:
                     if part.type == "output_text":
+                        parts.append(part.text)
                         for ann in part.annotations or []:
                             if ann.type == "url_citation":
                                 citations.append({"title": ann.title, "url": ann.url})
+                if parts:
+                    last_text = "".join(parts)
 
-        text = (resp.output_text or "").strip()
+        text = last_text.strip()
         if not text:
             raise ProviderError("returned no text")
 

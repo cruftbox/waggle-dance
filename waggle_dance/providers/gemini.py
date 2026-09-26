@@ -72,21 +72,26 @@ class GeminiProvider:
         if resp.status not in (None, "completed"):
             raise ProviderError(f"interaction ended with status {resp.status}")
 
-        texts: list[str] = []
+        # Keep only the last model_output step's text, so any progress notes
+        # between searches are dropped.
+        last_text = ""
         citations: list[dict] = []
         search_steps = 0
         for step in resp.steps or []:
             if step.type == "google_search_call":
                 search_steps += 1
             elif step.type == "model_output":
+                parts = []
                 for block in step.content or []:
                     if block.type == "text":
-                        texts.append(block.text)
+                        parts.append(block.text)
                         for ann in block.annotations or []:
                             if ann.type == "url_citation":
                                 citations.append({"title": ann.title, "url": ann.url})
+                if parts:
+                    last_text = "".join(parts)
 
-        text = "".join(texts).strip()
+        text = last_text.strip()
         if not text:
             raise ProviderError("returned no text")
 

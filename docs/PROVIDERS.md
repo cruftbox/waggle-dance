@@ -8,7 +8,7 @@ SDK versions at the time: `anthropic` 1.8.0, `openai` 3.19.2, `google-genai` 2.2
 
 | Key | Model | API | Search tool | Input / cached / output per 1M | Per search |
 |---|---|---|---|---|---|
-| `claude` | `claude-opus-5-5` | Anthropic Messages | `web_search_20260318` | $4.00 / $0.20 / $20.00 | $0.010 |
+| `claude` | `claude-opus-5-5` | Anthropic Messages | `web_search_20250305` | $4.00 / $0.20 / $20.00 | $0.010 |
 | `chatgpt` | `gpt-6-sol` | OpenAI Responses | `{"type": "web_search"}` | $2.00 / $0.20 / $10.00 | $0.010 |
 | `gemini` | `gemini-3.8-flash` | Google Interactions | `{"type": "google_search"}` | $0.75 / $0.075 / $3.75 | $0.014 |
 | `muse` | `muse-spark-1.3` | Meta Responses (OpenAI-compatible) | `{"type": "web_search"}` | $1.25 / $0.15 / $4.25 | $0.0025 |
@@ -29,7 +29,7 @@ Findings:
 - Model `claude-opus-5-5`. The models overview says to start with Opus 5.5 for most workloads. The current lineup also has `claude-fable-5-1` (most capable, $10 / $50), `claude-sonnet-5`, and `claude-haiku-4-5`.
 - Adaptive thinking is always on for Opus 5.5 and cannot be disabled. `budget_tokens` is rejected with a 400. Depth is set with `output_config.effort` (`low` to `max`, default `medium` on this model), exposed as `effort` in the config.
 - The system prompt goes in `system`. Assistant prefill is not allowed, which the bot never needs.
-- Web search: `{"type": "web_search_20260318", "name": "web_search", "max_uses": 5}`. This version runs dynamic filtering (the model filters results with code before reading them). Older models need `web_search_20250305`. Search must be enabled for the organization in the Claude Console; it is on unless an admin turned it off.
+- Web search: `{"type": "web_search_20250305", "name": "web_search", "max_uses": 5}`, the basic version. The newer `web_search_20260209` and `web_search_20260318` add dynamic filtering (the model filters results with code before reading them). In the smoke test on 2026-09-26, `web_search_20260318` returned the answer with no structured citations and used 29,372 input tokens, against 12,445 with citations for the basic version, so the config uses the basic one. Search must be enabled for the organization in the Claude Console; it is on unless an admin turned it off.
 - Citations arrive on `text` blocks as `web_search_result_location` objects with `url`, `title`, and `cited_text`.
 - Usage fields: `input_tokens` (uncached), `cache_read_input_tokens`, `cache_creation_input_tokens`, `output_tokens`, and `server_tool_use.web_search_requests`.
 - Prices: $4 input, $20 output, $5 for 5-minute cache writes, $0.20 for cache reads, per 1M tokens. Search costs $10 per 1,000 searches plus tokens.
@@ -91,6 +91,7 @@ Findings:
 
 - **Gemini API.** The plan assumed `generate_content`. Google's docs now recommend the Interactions API for new work, so the bot uses it.
 - **Meta endpoint.** The plan left open whether Meta's endpoint supports Responses or Chat Completions, and asked the smoke test to try both. Meta's docs answer it: both exist, but search works only on Responses. The smoke test checks Responses only, and there is no separate `providers/meta.py`; Meta is an `openai_responses` provider in `models.yaml`.
-- **Anthropic web search version.** `web_search_20260318` is the newest version in the docs, with dynamic filtering.
+- **Anthropic web search version.** The config uses the basic `web_search_20250305`, not the newest version, because the dynamic filtering versions dropped structured citations in testing.
+- **Search progress notes.** ChatGPT, Muse Spark, and Gemini can write short notes between searches. Each provider keeps only the final message's text.
 - **Reply fields.** `Reply` has an extra `cache_write_tokens` field so Anthropic cache writes (billed above the input rate) are costed correctly.
 - **Cache breakpoints.** `generate()` takes `cache_breakpoints: list[int]` instead of `cache_after_index`, so Anthropic can mark both the submission and the end of the transcript.

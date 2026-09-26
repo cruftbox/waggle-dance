@@ -1,4 +1,9 @@
-"""Discord client: startup, webhook, thread messages, background runs, auto-close."""
+"""Discord client: startup, channel messages, background runs, closing, auto-close.
+
+Everything happens in one channel. At most one conversation (session) is open
+at a time. A plain message follows up on the open conversation, or starts a
+new discussion when none is open.
+"""
 
 from __future__ import annotations
 
@@ -13,7 +18,7 @@ from discord import app_commands
 
 from . import commands, ingest
 from .config import Settings
-from .discord_io import EMBED_DESCRIPTION_LIMIT, ThreadOutput, get_webhook, text_file
+from .discord_io import MESSAGE_LIMIT, NO_MENTIONS, ChannelOutput, get_webhook, text_file
 from .orchestrator import Busy, Orchestrator, Paused, Session
 
 log = logging.getLogger(__name__)
@@ -21,14 +26,15 @@ log = logging.getLogger(__name__)
 AUTO_CLOSE_CHECK_SECONDS = 600
 SEEN = "\N{EYES}"
 WAIT = "\N{HOURGLASS WITH FLOWING SAND}"
-MODE_LABELS = {"review": "Review request", "recommend": "Recommendation request", "discuss": "Discussion topic"}
+MODE_LABELS = {"review": "Review request", "recommend": "Recommendation request", "discuss": "Discussion"}
+FILE_EXTENSIONS = (".txt", ".md", ".markdown", ".pdf")
 
 
 class WaggleBot(discord.Client):
     def __init__(self, settings: Settings, orch: Orchestrator, reload_config: Callable[[], None]):
         intents = discord.Intents.default()
         intents.message_content = True
-        super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions.none())
+        super().__init__(intents=intents, allowed_mentions=NO_MENTIONS)
         self.settings = settings
         self.orch = orch
         self.reload_config = reload_config
@@ -55,125 +61,141 @@ class WaggleBot(discord.Client):
             return
         self.channel = channel
         self.webhook = await get_webhook(channel, self.user)
-        log.info("Ready as %s in #%s with %d open sessions", self.user, channel.name, len(self.orch.sessions))
+        current = self.orch.current()
+        log.info("Ready as %s in #%s; open conversation: %s", self.user, channel.name,
+                 current.title if current else "none")
 
     # Helpers used by commands
 
     def allowed(self, user: discord.abc.User) -> bool:
         return user.id in self.settings.allowed_user_ids
 
-    def session_for(self, channel) -> Session | None:
-        if isinstance(channel, discord.Thread) and channel.parent_id == self.settings.channel_id:
-            return self.orch.get(channel.id)
-        return None
+    def in_channel(self, channel) -> bool:
+        return channel is not None and channel.id == self.settings.channel_id
 
-    def output(self, thread: discord.Thread) -> ThreadOutput:
-        return ThreadOutput(thread, self.webhook, self.orch.cfg)
+    def output(self) -> ChannelOutput:
+        return ChannelOutput(self.channel, self.webhook, self.orch.cfg)
 
-    def run_in_thread(self, thread: discord.Thread, work: Callable[[ThreadOutput], Awaitable]) -> None:
-        """Run a session command in the background, one at a time per session."""
-        out = self.output(thread)
-
-        async def runner():
-            try:
-                result = await self.orch.run(thread.id, lambda: work(out))
-                if result is None and self.orch.is_paused(thread.id):
-                    log.info("Command in thread %s stopped by /pause", thread.id)
-            except (Busy, Paused):
-                await out.post_status("Another command started first. Use /pause to stop it.")
-            except Exception as exc:
-                log.exception("Command failed in thread %s", thread.id)
-                await out.post_status(f"Something went wrong: {type(exc).__name__}: {str(exc)[:300]}")
-
-        task = asyncio.create_task(runner())
+    def spawn(self, coro) -> None:
+        task = asyncio.create_task(coro)
         self._background.add(task)
         task.add_done_callback(self._background.discard)
 
-    async def start_session(self, mode: str, topic: str, submission: str, context: str, models: list[str],
-                            search: bool, title_text: str, fallback: str, source_url: str | None = None,
-                            from_message: discord.Message | None = None) -> tuple[discord.Thread, Session]:
-        """Create the thread and session, post the submission, and start the opening round.
+    def run_command(self, s: Session, work: Callable[[ChannelOutput], Awaitable]) -> None:
+        """Run a session command in the background, one at a time per session."""
+        out = self.output()
 
-        With from_message, the thread hangs off that channel message, which
-        already shows the question, so the submission is not posted again.
+        async def runner():
+            try:
+                result = await self.orch.run(s.session_id, lambda: work(out))
+                if result is None and self.orch.is_paused(s.session_id):
+                    log.info("Command in session %s stopped by /pause", s.session_id)
+            except (Busy, Paused):
+                await out.post_status("Another command started first. Use /pause to stop it.")
+            except Exception as exc:
+                log.exception("Command failed in session %s", s.session_id)
+                await out.post_status(f"Something went wrong: {type(exc).__name__}: {str(exc)[:300]}")
+
+        self.spawn(runner())
+
+    # Starting and closing conversations
+
+    async def start_session(self, session_id: int, mode: str, topic: str, submission: str, context: str,
+                            models: list[str], search: bool, title_text: str, fallback: str,
+                            source_url: str | None = None, post_submission: bool = True) -> Session:
+        """Close any open conversation, post the request, and start the opening round.
+
+        post_submission is False when the request is the owner's own channel
+        message, which is already visible. Raises Busy or Paused if the open
+        conversation cannot be closed.
         """
-        title = await self.orch.make_title(title_text, fallback)
-        if from_message is not None:
-            thread = await from_message.create_thread(name=title, auto_archive_duration=10080)
-        else:
-            thread = await self.channel.create_thread(
-                name=title, type=discord.ChannelType.public_thread, auto_archive_duration=10080
-            )
-            if mode == "recommend":
-                body = submission + (f"\n\n{context}" if context else "")
-            elif mode == "review":
-                body = submission + (f"\n\n**Context:** {context}" if context else "")
-            else:
-                body = topic if submission == topic else f"{topic}\n\n{submission}"
-            await self._post_submission(thread, mode, body, source_url)
-        s = self.orch.create_session(thread.id, mode, topic, title, submission, context, models, search)
-        self.run_in_thread(thread, lambda out: self.orch.opening(s, out))
-        return thread, s
+        current = self.orch.current()
+        if current is not None:
+            await self.close_session(current, mode="quiet", announce=False)
+            await self.output().post_status("-# Closed the previous conversation. Its export is saved.")
+        if post_submission:
+            await self._post_submission(mode, topic, submission, context, source_url)
+        s = self.orch.create_session(session_id, mode, topic, fallback[:100] or "Untitled", submission, context,
+                                     models, search)
+        self.run_command(s, lambda out: self.orch.opening(s, out))
+        self.spawn(self._set_title(s, title_text, fallback))
+        return s
 
-    async def _post_submission(self, thread: discord.Thread, mode: str, body: str, source_url: str | None) -> None:
-        embed = discord.Embed(title=MODE_LABELS[mode], color=0x2B2D31)
+    async def _set_title(self, s: Session, text: str, fallback: str) -> None:
+        """Name the conversation for exports, without delaying the opening round."""
+        s.title = await self.orch.make_title(text, fallback)
+        self.orch.store.update_session(s.session_id, title=s.title)
+
+    async def _post_submission(self, mode: str, topic: str, submission: str, context: str,
+                               source_url: str | None) -> None:
+        if mode == "discuss":
+            body = topic
+            material = submission if submission != topic else ""
+        else:
+            body = submission if mode == "recommend" else (source_url or "")
+            material = "" if mode == "recommend" else submission
+            if mode == "recommend" and context:
+                body += f"\n\n{context}"
+            if mode == "review" and context:
+                body += f"\n\nContext: {context}"
+        head = f"**{MODE_LABELS[mode]}**\n"
         file = None
-        if len(body) <= EMBED_DESCRIPTION_LIMIT:
-            embed.description = body
-        else:
-            embed.description = body[:1500].rstrip() + "\n\n(Full text attached.)"
-            file = text_file(body, "submission.md")
-        if source_url:
-            embed.add_field(name="Source", value=source_url[:1024], inline=False)
-        embed.set_footer(text=f"Submitted by {self.settings.owner_name}")
+        if material:
+            if len(head) + len(body) + len(material) + 2 <= MESSAGE_LIMIT and mode == "discuss":
+                body = f"{body}\n\n{material}"
+            else:
+                file = text_file(material, "submission.md")
+        text = (head + body.strip())[:MESSAGE_LIMIT]
+        kwargs = {"allowed_mentions": NO_MENTIONS, "suppress_embeds": True}
         if file:
-            await thread.send(embed=embed, file=file)
+            await self.channel.send(text, file=file, **kwargs)
         else:
-            await thread.send(embed=embed)
+            await self.channel.send(text, **kwargs)
 
-    async def close_session(self, thread: discord.Thread, s: Session, mode: str, summarizer: str | None) -> bool:
-        """Close a session: closing record, exports, attach Markdown, lock and archive.
+    async def close_session(self, s: Session, mode: str, summarizer: str | None = None,
+                            announce: bool = True) -> bool:
+        """Close a conversation under its session lock. Raises Busy or Paused.
 
-        Runs under the session lock like any other command. Raises Busy or
-        Paused. Returns False if /pause stopped it.
+        With announce, posts the closing record and attaches the Markdown
+        export. Returns False if /pause stopped it.
         """
-        out = self.output(thread)
-        if thread.archived:
-            await thread.edit(archived=False)
-        result = await self.orch.run(thread.id, lambda: self.orch.close(s, out, mode=mode, summarizer=summarizer))
+        out = self.output()
+        result = await self.orch.run(
+            s.session_id, lambda: self.orch.close(s, out, mode=mode, summarizer=summarizer, announce=announce)
+        )
         if result is None:
             return False
-        md_path = result[0]
-        await thread.send(file=discord.File(md_path, filename=md_path.name))
-        await thread.edit(locked=True, archived=True)
+        if announce:
+            md_path = result[0]
+            await self.channel.send(file=discord.File(md_path, filename=md_path.name))
         return True
 
-    # Owner messages: in the channel they start a discussion, in a thread they join the transcript
+    # Owner messages in the channel
 
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot or message.webhook_id or not self.allowed(message.author):
             return
-        if message.channel.id == self.settings.channel_id:
+        if not self.in_channel(message.channel) or self.webhook is None:
+            return
+        s = self.orch.current()
+        if s is None:
             await self._discuss_from_message(message)
             return
-        s = self.session_for(message.channel)
-        if s is None or not message.content.strip():
+        if not message.content.strip():
             return
         target = self._addressed_model(s, message.content)
-        if target and (self.orch.is_busy(s.thread_id) or self.orch.is_paused(s.thread_id)):
+        if target and (self.orch.is_busy(s.session_id) or self.orch.is_paused(s.session_id)):
             await message.add_reaction(WAIT)
             return
         self.orch.add_owner_message(s, message.content.strip())
         await message.add_reaction(SEEN)
         if target:
-            self.run_in_thread(message.channel, lambda out: self.orch.ask(s, target, None, out))
+            self.run_command(s, lambda out: self.orch.ask(s, target, None, out))
 
     async def _discuss_from_message(self, message: discord.Message) -> None:
-        """A plain message in the channel starts a discussion, like /discuss with default options."""
-        if self.webhook is None:
-            return
+        """With no open conversation, a plain message starts one, like /discuss with default options."""
         topic = message.content.strip()
-        files = [a for a in message.attachments if a.filename.lower().endswith((".txt", ".md", ".markdown", ".pdf"))]
+        files = [a for a in message.attachments if a.filename.lower().endswith(FILE_EXTENSIONS)]
         if not topic and not files:
             return
         material = []
@@ -188,11 +210,11 @@ class WaggleBot(discord.Client):
         submission = "\n\n".join(material) if material else topic
         await message.add_reaction(SEEN)
         try:
-            await self.start_session("discuss", topic, submission, "", self.orch.enabled_keys(), False,
+            await self.start_session(message.id, "discuss", topic, submission, "", self.orch.enabled_keys(), False,
                                      topic if submission == topic else f"{topic}\n\n{submission}", topic,
-                                     from_message=message)
+                                     post_submission=False)
         except Exception as exc:
-            log.exception("Could not start a session from message %s", message.id)
+            log.exception("Could not start a conversation from message %s", message.id)
             await message.reply(f"Could not start a discussion: {type(exc).__name__}: {str(exc)[:300]}",
                                 mention_author=False)
 
@@ -220,27 +242,23 @@ class WaggleBot(discord.Client):
             await asyncio.sleep(AUTO_CLOSE_CHECK_SECONDS)
 
     async def _auto_close_once(self) -> None:
+        if self.channel is None:
+            return
         cutoff = datetime.now(timezone.utc) - timedelta(hours=self.settings.auto_close_hours)
         for s in list(self.orch.sessions.values()):
-            if self.orch.is_busy(s.thread_id):
+            if self.orch.is_busy(s.session_id) or datetime.fromisoformat(s.last_activity) > cutoff:
                 continue
-            if datetime.fromisoformat(s.last_activity) > cutoff:
-                continue
+            log.info("Auto-closing idle conversation %s", s.session_id)
             try:
-                thread = self.get_channel(s.thread_id) or await self.fetch_channel(s.thread_id)
-            except discord.NotFound:
-                log.warning("Thread %s is gone; marking its session closed", s.thread_id)
-                self.orch.store.update_session(s.thread_id, status="closed")
-                self.orch.sessions.pop(s.thread_id, None)
-                continue
-            log.info("Auto-closing idle session %s", s.thread_id)
-            try:
-                await self.close_session(thread, s, mode="quiet", summarizer=None)
+                await self.close_session(s, mode="quiet", announce=False)
             except (Busy, Paused):
                 continue
+            hours = f"{self.settings.auto_close_hours:g}"
+            await self.output().post_status(
+                f"-# Closed the conversation after {hours} hours without activity. Its export is saved."
+            )
 
     async def close(self) -> None:
         if self._auto_close_task:
             self._auto_close_task.cancel()
         await super().close()
-

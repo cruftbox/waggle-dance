@@ -1,4 +1,4 @@
-"""Discord output: splitting long text, embeds, and webhook posting."""
+"""Discord output: splitting long text and posting plain messages to the channel."""
 
 from __future__ import annotations
 
@@ -10,16 +10,13 @@ import discord
 
 log = logging.getLogger(__name__)
 
-EMBED_DESCRIPTION_LIMIT = 4096
-FIELD_VALUE_LIMIT = 1024
 MESSAGE_LIMIT = 2000
 MAX_SOURCES = 5
 WEBHOOK_NAME = "waggle-dance"
-ERROR_COLOR = 0xD83C3E
-STATUS_COLOR = 0x5865F2
+NO_MENTIONS = discord.AllowedMentions.none()
 
 
-def split_text(text: str, limit: int = EMBED_DESCRIPTION_LIMIT) -> list[str]:
+def split_text(text: str, limit: int = MESSAGE_LIMIT) -> list[str]:
     """Split text into chunks of at most limit characters.
 
     Splits at paragraph breaks where possible, then at line breaks, then at
@@ -75,22 +72,28 @@ def _break(para: str, limit: int) -> list[str]:
     return [para[i : i + limit] for i in range(0, len(para), limit)]
 
 
-def sources_value(citations: list[dict]) -> str:
-    """Markdown links for up to MAX_SOURCES citations, within the embed field limit."""
-    lines = []
+def sources_line(citations: list[dict]) -> str:
+    """One small-text line linking up to MAX_SOURCES sources, without link previews."""
+    links = []
     for c in citations[:MAX_SOURCES]:
         title = re.sub(r"[\[\]]", "", c.get("title") or c["url"]).strip()
-        if len(title) > 60:
-            title = title[:57] + "..."
-        line = f"[{title}]({c['url']})"
-        if len("\n".join(lines + [line])) > FIELD_VALUE_LIMIT:
-            break
-        lines.append(line)
-    return "\n".join(lines)
+        if len(title) > 50:
+            title = title[:47] + "..."
+        links.append(f"[{title}](<{c['url']}>)")
+    return "-# Sources: " + ", ".join(links) if links else ""
 
 
-def color_int(color: str) -> int:
-    return int(color.lstrip("#"), 16)
+def reply_messages(text: str, citations: list[dict], footer: str) -> list[str]:
+    """Split a reply into message contents, with sources and label in small text at the end."""
+    chunks = split_text(text) or ["(empty reply)"]
+    tail_lines = [line for line in (sources_line(citations), f"-# {footer}" if footer else "") if line]
+    tail = "\n".join(tail_lines)[:MESSAGE_LIMIT]
+    if tail:
+        if len(chunks[-1]) + 1 + len(tail) <= MESSAGE_LIMIT:
+            chunks[-1] = f"{chunks[-1]}\n{tail}"
+        else:
+            chunks.append(tail)
+    return chunks
 
 
 def text_file(text: str, filename: str) -> discord.File:
@@ -106,34 +109,31 @@ async def get_webhook(channel: discord.TextChannel, bot_user: discord.abc.User) 
     return await channel.create_webhook(name=WEBHOOK_NAME)
 
 
-class ThreadOutput:
-    """Implements orchestrator.Output for one Discord thread."""
+class ChannelOutput:
+    """Implements orchestrator.Output for the bot's channel.
 
-    def __init__(self, thread: discord.Thread, webhook: discord.Webhook, cfg: dict):
-        self.thread = thread
+    Model replies go through the webhook under each model's name. Status
+    messages, errors, and vote tables come from the bot account.
+    """
+
+    def __init__(self, channel: discord.TextChannel, webhook: discord.Webhook, cfg: dict):
+        self.channel = channel
         self.webhook = webhook
         self.cfg = cfg
 
     def typing(self):
-        return self.thread.typing()
+        return self.channel.typing()
 
     async def post_model(self, key: str, text: str, citations: list[dict], footer: str) -> list[int]:
         m = self.cfg["models"][key]
-        chunks = split_text(text) or ["(empty reply)"]
         ids = []
-        for i, chunk in enumerate(chunks, 1):
-            embed = discord.Embed(description=chunk, color=color_int(m["color"]))
-            label = footer if len(chunks) == 1 else f"{footer} | {i}/{len(chunks)}"
-            embed.set_footer(text=label)
-            if i == len(chunks) and citations:
-                value = sources_value(citations)
-                if value:
-                    embed.add_field(name="Sources", value=value, inline=False)
+        for content in reply_messages(text, citations, footer):
             msg = await self.webhook.send(
-                embed=embed,
+                content=content,
                 username=m["display_name"],
                 avatar_url=m.get("avatar_url") or discord.utils.MISSING,
-                thread=self.thread,
+                suppress_embeds=True,
+                allowed_mentions=NO_MENTIONS,
                 wait=True,
             )
             ids.append(msg.id)
@@ -141,19 +141,18 @@ class ThreadOutput:
 
     async def post_error(self, key: str, message: str) -> None:
         name = self.cfg["models"][key]["display_name"] if key in self.cfg["models"] else key
-        embed = discord.Embed(title=f"{name} failed", description=message[:EMBED_DESCRIPTION_LIMIT],
-                              color=ERROR_COLOR)
-        await self.thread.send(embed=embed)
+        await self.post_status(f"**{name} failed:** {message}")
 
     async def post_status(self, text: str) -> None:
         for chunk in split_text(text, MESSAGE_LIMIT):
-            await self.thread.send(chunk, allowed_mentions=discord.AllowedMentions.none())
+            await self.channel.send(chunk, allowed_mentions=NO_MENTIONS, suppress_embeds=True)
 
     async def post_vote(self, rows, ballots: dict, reasons: dict, dropped: dict, names: dict) -> None:
-        await self.thread.send(embed=vote_embed(rows, ballots, reasons, dropped, names))
+        for chunk in vote_messages(rows, ballots, reasons, dropped, names):
+            await self.channel.send(chunk, allowed_mentions=NO_MENTIONS)
 
 
-def vote_embed(rows, ballots: dict, reasons: dict, dropped: dict, names: dict) -> discord.Embed:
+def vote_messages(rows, ballots: dict, reasons: dict, dropped: dict, names: dict) -> list[str]:
     voters = list(ballots)
     short = {k: names.get(k, k)[:8] for k in voters}
     width = min(max(len(r.candidate) for r in rows), 28)
@@ -163,11 +162,8 @@ def vote_embed(rows, ballots: dict, reasons: dict, dropped: dict, names: dict) -
         cand = r.candidate if len(r.candidate) <= width else r.candidate[: width - 1] + "~"
         ranks = " ".join(f"{(str(r.ranks.get(k)) if r.ranks.get(k) else '-'):>8}" for k in voters)
         lines.append(f"{r.place:>2} {cand:<{width}} {r.points:>3} {ranks}")
-    table = "```\n" + "\n".join(lines) + "\n```"
+    table = "**Vote (Borda count)**\n```\n" + "\n".join(lines) + "\n```"
     notes = [f"**{names.get(k, k)}:** {reasons[k]}" for k in voters if reasons.get(k)]
     notes += [f"**{names.get(k, k)}:** vote dropped ({why})" for k, why in dropped.items()]
-    description = table + ("\n" + "\n".join(notes) if notes else "")
-    embed = discord.Embed(title="Vote (Borda count)", description=description[:EMBED_DESCRIPTION_LIMIT],
-                          color=STATUS_COLOR)
-    embed.set_footer(text="Points: with n candidates, 1st place scores n-1 and last scores 0. Tallied in code.")
-    return embed
+    notes.append("-# With n candidates, 1st place scores n-1 and last scores 0. Tallied in code.")
+    return [table[:MESSAGE_LIMIT]] + split_text("\n".join(notes), MESSAGE_LIMIT)

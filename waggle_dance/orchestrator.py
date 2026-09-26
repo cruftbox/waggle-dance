@@ -46,7 +46,7 @@ class Output(Protocol):
 
 @dataclass
 class Session:
-    thread_id: int
+    session_id: int
     mode: str
     topic: str
     title: str
@@ -121,46 +121,52 @@ class Orchestrator:
 
     # Sessions
 
-    def create_session(self, thread_id: int, mode: str, topic: str, title: str, submission: str,
+    def create_session(self, session_id: int, mode: str, topic: str, title: str, submission: str,
                        constraints: str, models: list[str], search: bool) -> Session:
         if mode not in MODES:
             raise ValueError(f"unknown mode {mode}")
-        s = Session(thread_id=thread_id, mode=mode, topic=topic, title=title, submission=submission,
+        s = Session(session_id=session_id, mode=mode, topic=topic, title=title, submission=submission,
                     constraints=constraints, models=models, search=search)
-        self.store.create_session(thread_id, mode, topic, title, submission, constraints, s.settings())
-        self.sessions[thread_id] = s
+        self.store.create_session(session_id, mode, topic, title, submission, constraints, s.settings())
+        self.sessions[session_id] = s
         return s
 
     def load_open_sessions(self) -> int:
-        for thread_id in self.store.open_session_ids():
-            s = self._from_store(thread_id)
+        for session_id in self.store.open_session_ids():
+            s = self._from_store(session_id)
             if s:
-                self.sessions[thread_id] = s
+                self.sessions[session_id] = s
         return len(self.sessions)
 
-    def _from_store(self, thread_id: int) -> Session | None:
-        row = self.store.get_session(thread_id)
+    def _from_store(self, session_id: int) -> Session | None:
+        row = self.store.get_session(session_id)
         if row is None:
             return None
         st = row["settings"]
         return Session(
-            thread_id=thread_id, mode=row["mode"], topic=row["topic"], title=row["title"],
+            session_id=session_id, mode=row["mode"], topic=row["topic"], title=row["title"],
             submission=row["submission"], constraints=row["constraints"], models=st.get("models", []),
             search=bool(st.get("search")), status=row["status"], entries=row["entries"], roles=row["roles"],
             debate_round=st.get("debate_round", 0), consensus_seq=st.get("consensus_seq"),
             created=row["created"], last_activity=row["last_activity"],
         )
 
-    def get(self, thread_id: int) -> Session | None:
-        return self.sessions.get(thread_id)
+    def get(self, session_id: int) -> Session | None:
+        return self.sessions.get(session_id)
+
+    def current(self) -> Session | None:
+        """The open conversation in the channel: the most recently started open session."""
+        if not self.sessions:
+            return None
+        return max(self.sessions.values(), key=lambda s: (s.created, s.session_id))
 
     def _save(self, s: Session) -> None:
-        self.store.update_session(s.thread_id, settings=s.settings())
+        self.store.update_session(s.session_id, settings=s.settings())
 
     def _append(self, s: Session, e: Entry) -> Entry:
         s.entries.append(e)
         s.last_activity = e.created
-        self.store.add_entry(s.thread_id, e)
+        self.store.add_entry(s.session_id, e)
         return e
 
     def add_owner_message(self, s: Session, text: str) -> Entry:
@@ -172,48 +178,48 @@ class Orchestrator:
             s.roles[key] = role
         else:
             s.roles.pop(key, None)
-        self.store.set_role(s.thread_id, key, role)
+        self.store.set_role(s.session_id, key, role)
 
     # Running commands one at a time per session
 
-    def is_busy(self, thread_id: int) -> bool:
-        lock = self._locks.get(thread_id)
+    def is_busy(self, session_id: int) -> bool:
+        lock = self._locks.get(session_id)
         return bool(lock and lock.locked())
 
-    def is_paused(self, thread_id: int) -> bool:
-        return thread_id in self._paused
+    def is_paused(self, session_id: int) -> bool:
+        return session_id in self._paused
 
-    async def run(self, thread_id: int, work: Callable[[], Awaitable]):
+    async def run(self, session_id: int, work: Callable[[], Awaitable]):
         """Run a command's work exclusively. Returns None if /pause cancelled it."""
-        if thread_id in self._paused:
+        if session_id in self._paused:
             raise Paused()
-        lock = self._locks.setdefault(thread_id, asyncio.Lock())
+        lock = self._locks.setdefault(session_id, asyncio.Lock())
         if lock.locked():
             raise Busy()
         async with lock:
             task = asyncio.create_task(work())
-            self._tasks[thread_id] = task
+            self._tasks[session_id] = task
             try:
                 return await task
             except asyncio.CancelledError:
-                if task.cancelled() and thread_id in self._paused:
+                if task.cancelled() and session_id in self._paused:
                     return None
                 task.cancel()
                 raise
             finally:
-                self._tasks.pop(thread_id, None)
+                self._tasks.pop(session_id, None)
 
-    def pause(self, thread_id: int) -> bool:
+    def pause(self, session_id: int) -> bool:
         """Block new commands and cancel the running one. Returns True if one was running."""
-        self._paused.add(thread_id)
-        task = self._tasks.get(thread_id)
+        self._paused.add(session_id)
+        task = self._tasks.get(session_id)
         if task and not task.done():
             task.cancel()
             return True
         return False
 
-    def resume(self, thread_id: int) -> None:
-        self._paused.discard(thread_id)
+    def resume(self, session_id: int) -> None:
+        self._paused.discard(session_id)
 
     # One model turn
 
@@ -231,19 +237,18 @@ class Orchestrator:
             timeout=limit,
         )
         cost = costs.reply_cost(m["prices"], reply)
-        self.store.add_usage(s.thread_id, key, reply.input_tokens, reply.output_tokens, reply.cached_tokens,
+        self.store.add_usage(s.session_id, key, reply.input_tokens, reply.output_tokens, reply.cached_tokens,
                              reply.cache_write_tokens, reply.search_calls, cost)
         return reply
 
     def _footer(self, s: Session, key: str, phase: str, rnd: int) -> str:
+        """A short label shown under a reply. Empty for plain opening replies and answers."""
         labels = {
-            "opening": "Opening round",
             "debate": f"Debate round {rnd}",
-            "ask": "Answer",
             "disagree": "Disagreements",
             "consensus": "Consensus",
         }
-        parts = [labels.get(phase, phase)]
+        parts = [labels[phase]] if phase in labels else []
         if s.roles.get(key):
             parts.append(f"Role: {s.roles[key]}")
         return " | ".join(parts)
@@ -266,7 +271,7 @@ class Orchestrator:
         entry = self._append(s, Entry(seq=s.next_seq(), speaker=key, kind="model", phase=phase, round=rnd,
                                       text=text, citations=citations))
         entry.message_ids = await out.post_model(key, text, citations, self._footer(s, key, phase, rnd))
-        self.store.set_message_ids(s.thread_id, entry.seq, entry.message_ids)
+        self.store.set_message_ids(s.session_id, entry.seq, entry.message_ids)
         return entry
 
     async def _raw(self, s: Session, key: str, messages: list[dict]) -> str:
@@ -277,7 +282,7 @@ class Orchestrator:
     # Spend warning
 
     async def warn_if_expensive(self, s: Session, calls: dict[str, int], out: Output) -> None:
-        usage = self.store.usage_by_model(s.thread_id)
+        usage = self.store.usage_by_model(s.session_id)
         spent = sum(u["cost"] or 0 for u in usage.values())
         per_call = {}
         for key in calls:
@@ -422,7 +427,7 @@ class Orchestrator:
 
     def cost_report(self, s: Session) -> str:
         names = self.names()
-        usage = self.store.usage_by_model(s.thread_id)
+        usage = self.store.usage_by_model(s.session_id)
         if not usage:
             return "No model calls yet."
         lines = ["Estimated cost for this session (estimates, from token counts and configured prices):"]
@@ -437,19 +442,21 @@ class Orchestrator:
         return "\n".join(lines)
 
     def total_cost(self, s: Session) -> float:
-        return sum(u["cost"] or 0 for u in self.store.usage_by_model(s.thread_id).values())
+        return sum(u["cost"] or 0 for u in self.store.usage_by_model(s.session_id).values())
 
     async def close(self, s: Session, out: Output, mode: str = "summary",
-                    summarizer: str | None = None) -> tuple[Path, Path, str]:
+                    summarizer: str | None = None, announce: bool = True) -> tuple[Path, Path, str]:
         """Post a closing record, write exports, mark closed, and drop the session from memory.
 
-        The bot locks and archives the Discord thread afterward.
+        With announce=False, nothing is posted; the caller says what happened.
+
+        The bot attaches the Markdown export in Discord afterward.
         """
         if mode == "summary" and s.needs_consensus() and any(e.kind == "model" for e in s.entries):
             await self.consensus(s, out, summarizer)
         names = self.names()
         record = [
-            f"Session closed: {s.title}",
+            f"Conversation closed: {s.title}",
             f"Participants: {', '.join(names[k] for k in s.models)}",
         ]
         consensus = next((e for e in s.entries if e.seq == s.consensus_seq), None)
@@ -459,14 +466,15 @@ class Orchestrator:
             record.append("Outcome: closed without a summary.")
         record.append(f"Estimated total cost: {costs.format_usd(self.total_cost(s))}")
         record_text = "\n".join(record)
-        await out.post_status(record_text)
+        if announce:
+            await out.post_status(record_text)
 
         s.status = "closed"
-        self.store.update_session(s.thread_id, status="closed", settings=s.settings())
+        self.store.update_session(s.session_id, status="closed", settings=s.settings())
         md_path, json_path = self.write_exports(s)
-        self.sessions.pop(s.thread_id, None)
-        self._locks.pop(s.thread_id, None)
-        self._paused.discard(s.thread_id)
+        self.sessions.pop(s.session_id, None)
+        self._locks.pop(s.session_id, None)
+        self._paused.discard(s.session_id)
         return md_path, json_path, record_text
 
     # Exports
@@ -500,17 +508,17 @@ class Orchestrator:
 
     def export_json(self, s: Session) -> str:
         data = {
-            "thread_id": s.thread_id, "mode": s.mode, "topic": s.topic, "title": s.title,
+            "session_id": s.session_id, "mode": s.mode, "topic": s.topic, "title": s.title,
             "submission": s.submission, "constraints": s.constraints, "models": s.models, "search": s.search,
             "status": s.status, "created": s.created, "last_activity": s.last_activity, "roles": s.roles,
             "entries": [e.__dict__ for e in s.entries],
-            "usage": self.store.usage_by_model(s.thread_id),
+            "usage": self.store.usage_by_model(s.session_id),
         }
         return json.dumps(data, indent=2, ensure_ascii=False)
 
     def write_exports(self, s: Session) -> tuple[Path, Path]:
         self.exports_dir.mkdir(parents=True, exist_ok=True)
-        base = self.exports_dir / f"{s.thread_id}-{_slug(s.title)}"
+        base = self.exports_dir / f"{s.session_id}-{_slug(s.title)}"
         md_path, json_path = base.with_suffix(".md"), base.with_suffix(".json")
         md_path.write_text(self.export_markdown(s), encoding="utf-8")
         json_path.write_text(self.export_json(s), encoding="utf-8")

@@ -1,8 +1,7 @@
-"""Slash commands and modals."""
+"""Slash commands and modals. Everything runs in the bot's channel on the open conversation."""
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 from typing import TYPE_CHECKING, Literal
@@ -24,31 +23,30 @@ log = logging.getLogger(__name__)
 SEARCH_DEFAULT = {"review": False, "recommend": True, "discuss": False}
 MODAL_TEXT_LIMIT = 4000
 
-HELP = """**waggle-dance commands**
+HELP = """**waggle-dance**
 
-Start a session (in the bot's channel):
+Type a message in this channel to start a conversation, or to follow up on the open one. Start a message with a model name and a colon, like `claude: why?`, to ask only that model. The bot reacts with an eyes emoji when it records your message. Attach a .txt, .md, or .pdf to the first message to include it.
+
+Start a new conversation (closes the open one):
+`/new [topic]` start fresh, optionally with a topic
+`/discuss topic` open discussion, optional `file`
 `/review` critique a post: `url`, `file`, or no input to paste text; optional `context`
 `/recommend` product recommendation (opens a form; search is always on)
-`/discuss topic` open discussion, optional `file`
-All three take `models` (for example `claude, gemini`) and `search` (`on` or `off`).
+These take `models` (for example `claude, gemini`); `/discuss` and `/review` take `search` (`on` or `off`).
 
-In a session thread:
+In the open conversation:
 `/debate [rounds]` sequential turns, 1 to 5 rounds
 `/ask model question` one model answers
 `/role model role` set a stance (skeptic, advocate, editor, target reader, or your own); `none` clears
 `/disagree` one model lists only the disagreements
 `/vote` ranked vote, tallied with a Borda count
 `/consensus [summarizer]` one model writes the outcome
-`/cost` estimated spend for the session
+`/cost` estimated spend so far
 `/export` transcript as Markdown and JSON
 `/pause` and `/resume` stop the current command and block new ones, then allow them again
-`/close [mode] [summarizer]` end the session (permanent)
+`/close [mode] [summarizer]` end the conversation
 
-A plain message in the bot's channel starts a discussion, like `/discuss` with all models and search off. Attach a .txt, .md, or .pdf to include it.
-
-Plain messages in a thread are added to the transcript (the bot reacts with an eyes emoji). Start a message with a model name and a colon, like `claude: why?`, to ask that model directly.
-
-Anywhere: `/models`, `/instructions [model]`, `/reload`, `/help`"""
+Also: `/models`, `/instructions [model]`, `/reload`, `/help`"""
 
 
 def register(bot: "WaggleBot") -> None:
@@ -72,28 +70,36 @@ def register(bot: "WaggleBot") -> None:
         return False
 
     async def in_channel(interaction: discord.Interaction) -> bool:
-        if interaction.channel_id == bot.settings.channel_id:
-            if bot.channel is None or bot.webhook is None:
-                await respond(interaction, "The bot is still starting up. Try again in a moment.")
-                return False
-            return True
-        await respond(interaction, f"Start sessions in <#{bot.settings.channel_id}>.")
-        return False
+        if not bot.in_channel(interaction.channel):
+            await respond(interaction, f"Use waggle-dance in <#{bot.settings.channel_id}>.")
+            return False
+        if bot.channel is None or bot.webhook is None:
+            await respond(interaction, "The bot is still starting up. Try again in a moment.")
+            return False
+        return True
 
-    async def session_here(interaction: discord.Interaction) -> Session | None:
-        s = bot.session_for(interaction.channel)
+    async def ready(interaction: discord.Interaction) -> bool:
+        return await allowed(interaction) and await in_channel(interaction)
+
+    async def open_conversation(interaction: discord.Interaction) -> Session | None:
+        s = orch.current()
         if s is None:
-            await respond(interaction, "Run this inside an open session thread.")
+            await respond(interaction, "No conversation is open. Type a message to start one.")
         return s
 
     async def free(interaction: discord.Interaction, s: Session) -> bool:
-        if orch.is_paused(s.thread_id):
-            await respond(interaction, "This session is paused. Use /resume first.")
+        if orch.is_paused(s.session_id):
+            await respond(interaction, "The conversation is paused. Use /resume first.")
             return False
-        if orch.is_busy(s.thread_id):
+        if orch.is_busy(s.session_id):
             await respond(interaction, "Busy with another command. Use /pause to stop it.")
             return False
         return True
+
+    async def can_start(interaction: discord.Interaction) -> bool:
+        """A new conversation closes the open one, which must not be busy or paused."""
+        s = orch.current()
+        return s is None or await free(interaction, s)
 
     def parse_models(text: str | None) -> tuple[list[str], str]:
         enabled = orch.enabled_keys()
@@ -120,7 +126,7 @@ def register(bot: "WaggleBot") -> None:
         return next((k for k in keys if t in (k.lower(), names[k].lower())), None)
 
     async def model_choices(interaction: discord.Interaction, current: str):
-        s = bot.session_for(interaction.channel)
+        s = orch.current()
         keys = s.models if s else orch.enabled_keys()
         names = orch.names()
         return [app_commands.Choice(name=names[k], value=k) for k in keys
@@ -133,19 +139,20 @@ def register(bot: "WaggleBot") -> None:
     def resolve_search(mode: str, search: str | None) -> bool:
         return SEARCH_DEFAULT[mode] if search is None else search == "on"
 
-    # Starting a session
+    # Starting a conversation
 
     async def begin(interaction: discord.Interaction, mode: str, topic: str, submission: str, context: str,
                     models: list[str], search: bool, title_text: str, fallback: str,
                     source_url: str | None = None) -> None:
-        """Start a session from a slash command. The interaction must already be deferred."""
-        thread, _s = await bot.start_session(mode, topic, submission, context, models, search, title_text,
-                                             fallback, source_url=source_url)
+        """Start a conversation from a slash command. The interaction must already be deferred."""
+        try:
+            await bot.start_session(interaction.id, mode, topic, submission, context, models, search, title_text,
+                                    fallback, source_url=source_url)
+        except (Busy, Paused):
+            return await respond(interaction, "The open conversation is busy or paused. Use /pause or /resume.")
         names = orch.names()
-        await interaction.followup.send(
-            f"Started {thread.mention} with {', '.join(names[k] for k in models)}. Search is "
-            f"{'on' if search else 'off'}.", ephemeral=True,
-        )
+        await respond(interaction, f"Started with {', '.join(names[k] for k in models)}. "
+                                   f"Search is {'on' if search else 'off'}.")
 
     class ReviewModal(discord.ui.Modal, title="Review a post"):
         post = discord.ui.TextInput(label="Post text", style=discord.TextStyle.paragraph,
@@ -189,6 +196,26 @@ def register(bot: "WaggleBot") -> None:
             constraints = "\n".join(f"{label}: {str(v).strip()}" for label, v in parts if str(v).strip())
             await begin(interaction, "recommend", need, need, constraints, self.models, True, need, need)
 
+    @tree.command(name="new", description="Close the open conversation and start fresh")
+    @app_commands.describe(topic="Optional topic to start discussing right away")
+    async def new(interaction: discord.Interaction, topic: str | None = None):
+        if not await ready(interaction) or not await can_start(interaction):
+            return
+        if topic:
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            return await begin(interaction, "discuss", topic, topic, "", orch.enabled_keys(), False, topic, topic)
+        s = orch.current()
+        if s is None:
+            return await respond(interaction, "No conversation is open. Type a message to start one.")
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            await bot.close_session(s, mode="quiet", announce=False)
+        except (Busy, Paused):
+            return await respond(interaction, "The open conversation is busy or paused. Use /pause or /resume.")
+        await bot.output().post_status("-# Closed the previous conversation. Its export is saved. "
+                                       "The next message starts a new one.")
+        await respond(interaction, "Done. Type a message to start a new conversation.")
+
     @tree.command(name="review", description="Start a review of a blog or social media post")
     @app_commands.describe(url="Link to the post", file="A .txt, .md, or .pdf file",
                            context="Audience, platform, or what feedback you want",
@@ -196,7 +223,7 @@ def register(bot: "WaggleBot") -> None:
     async def review(interaction: discord.Interaction, url: str | None = None, file: discord.Attachment | None = None,
                      context: str | None = None, models: str | None = None,
                      search: Literal["on", "off"] | None = None):
-        if not await allowed(interaction) or not await in_channel(interaction):
+        if not await ready(interaction) or not await can_start(interaction):
             return
         chosen, error = parse_models(models)
         if error:
@@ -214,18 +241,13 @@ def register(bot: "WaggleBot") -> None:
             return await respond(interaction, f"Could not read that: {exc}.")
         label = page_title or (url or file.filename)
         await begin(interaction, "review", f"Review: {label[:80]}", text, (context or "").strip(), chosen,
-                    use_search, f"{page_title}\n\n{text}", label, source_url=url)
+                    use_search, f"{page_title}\n\n{text}", label, source_url=url or file.filename)
 
     @tree.command(name="recommend", description="Start a product recommendation (opens a form)")
-    @app_commands.describe(models="Models to include, comma-separated (default: all)",
-                           search="Search is required for recommendations")
-    async def recommend(interaction: discord.Interaction, models: str | None = None,
-                        search: Literal["on", "off"] | None = None):
-        if not await allowed(interaction) or not await in_channel(interaction):
+    @app_commands.describe(models="Models to include, comma-separated (default: all)")
+    async def recommend(interaction: discord.Interaction, models: str | None = None):
+        if not await ready(interaction) or not await can_start(interaction):
             return
-        if search == "off":
-            return await respond(interaction, "Recommendations need web search for prices and sources, "
-                                              "so search cannot be turned off here.")
         chosen, error = parse_models(models)
         if error:
             return await respond(interaction, error)
@@ -236,7 +258,7 @@ def register(bot: "WaggleBot") -> None:
                            models="Models to include, comma-separated (default: all)", search="Web search")
     async def discuss(interaction: discord.Interaction, topic: str, file: discord.Attachment | None = None,
                       models: str | None = None, search: Literal["on", "off"] | None = None):
-        if not await allowed(interaction) or not await in_channel(interaction):
+        if not await ready(interaction) or not await can_start(interaction):
             return
         chosen, error = parse_models(models)
         if error:
@@ -251,60 +273,64 @@ def register(bot: "WaggleBot") -> None:
         await begin(interaction, "discuss", topic, submission, "", chosen, resolve_search("discuss", search),
                     topic if submission == topic else f"{topic}\n\n{submission}", topic)
 
-    # Session thread commands
+    # Commands on the open conversation
+
+    async def session_ready(interaction: discord.Interaction, need_free: bool = True) -> Session | None:
+        if not await ready(interaction):
+            return None
+        s = await open_conversation(interaction)
+        if s is None or (need_free and not await free(interaction, s)):
+            return None
+        return s
 
     @tree.command(name="debate", description="Sequential debate turns")
     @app_commands.describe(rounds=f"Number of rounds, 1 to {MAX_DEBATE_ROUNDS}")
     async def debate(interaction: discord.Interaction,
                      rounds: app_commands.Range[int, 1, MAX_DEBATE_ROUNDS] = 1):
-        if not await allowed(interaction) or not (s := await session_here(interaction)) or not await free(
-                interaction, s):
+        if not (s := await session_ready(interaction)):
             return
         await respond(interaction, f"Starting {rounds} debate round{'s' if rounds > 1 else ''}.")
-        bot.run_in_thread(interaction.channel, lambda out: orch.debate(s, rounds, out))
+        bot.run_command(s, lambda out: orch.debate(s, rounds, out))
 
     @tree.command(name="consensus", description="One model writes the outcome")
     @app_commands.describe(summarizer="Model to write it (default: rotates)")
     @app_commands.autocomplete(summarizer=model_choices)
     async def consensus(interaction: discord.Interaction, summarizer: str | None = None):
-        if not await allowed(interaction) or not (s := await session_here(interaction)) or not await free(
-                interaction, s):
+        if not (s := await session_ready(interaction)):
             return
         key = model_key(s, summarizer) if summarizer else None
         if summarizer and not key:
-            return await respond(interaction, f"{summarizer} is not in this session.")
+            return await respond(interaction, f"{summarizer} is not in this conversation.")
         await respond(interaction, "Starting consensus.")
-        bot.run_in_thread(interaction.channel, lambda out: orch.consensus(s, out, key))
+        bot.run_command(s, lambda out: orch.consensus(s, out, key))
 
     @tree.command(name="vote", description="Ranked vote with a Borda count")
     async def vote(interaction: discord.Interaction):
-        if not await allowed(interaction) or not (s := await session_here(interaction)) or not await free(
-                interaction, s):
+        if not (s := await session_ready(interaction)):
             return
         await respond(interaction, "Starting a vote.")
-        bot.run_in_thread(interaction.channel, lambda out: orch.vote(s, out))
+        bot.run_command(s, lambda out: orch.vote(s, out))
 
     @tree.command(name="ask", description="One model answers; the others stay quiet")
     @app_commands.autocomplete(model=model_choices)
     async def ask(interaction: discord.Interaction, model: str, question: str):
-        if not await allowed(interaction) or not (s := await session_here(interaction)) or not await free(
-                interaction, s):
+        if not (s := await session_ready(interaction)):
             return
         key = model_key(s, model)
         if not key:
-            return await respond(interaction, f"{model} is not in this session.")
+            return await respond(interaction, f"{model} is not in this conversation.")
         await respond(interaction, f"Asking {orch.names()[key]}.")
-        bot.run_in_thread(interaction.channel, lambda out: orch.ask(s, key, question, out))
+        bot.run_command(s, lambda out: orch.ask(s, key, question, out))
 
-    @tree.command(name="role", description="Assign a stance to a model for the rest of the session")
+    @tree.command(name="role", description="Assign a stance to a model for the rest of the conversation")
     @app_commands.describe(role="skeptic, advocate, editor, target reader, your own text, or none")
     @app_commands.autocomplete(model=model_choices, role=role_choices)
     async def role(interaction: discord.Interaction, model: str, role: str):
-        if not await allowed(interaction) or not (s := await session_here(interaction)):
+        if not (s := await session_ready(interaction, need_free=False)):
             return
         key = model_key(s, model)
         if not key:
-            return await respond(interaction, f"{model} is not in this session.")
+            return await respond(interaction, f"{model} is not in this conversation.")
         name = orch.names()[key]
         if role.strip().lower() == "none":
             orch.set_role(s, key, None)
@@ -315,23 +341,22 @@ def register(bot: "WaggleBot") -> None:
 
     @tree.command(name="disagree", description="One model lists only the points of disagreement")
     async def disagree(interaction: discord.Interaction):
-        if not await allowed(interaction) or not (s := await session_here(interaction)) or not await free(
-                interaction, s):
+        if not (s := await session_ready(interaction)):
             return
         await respond(interaction, "Listing disagreements.")
-        bot.run_in_thread(interaction.channel, lambda out: orch.disagree(s, out))
+        bot.run_command(s, lambda out: orch.disagree(s, out))
 
-    @tree.command(name="cost", description="Estimated tokens, searches, and dollars for this session")
+    @tree.command(name="cost", description="Estimated tokens, searches, and dollars for this conversation")
     async def cost(interaction: discord.Interaction):
-        if not await allowed(interaction) or not (s := await session_here(interaction)):
+        if not (s := await session_ready(interaction, need_free=False)):
             return
         await respond(interaction, orch.cost_report(s))
 
     @tree.command(name="export", description="Attach the transcript as Markdown and JSON")
     async def export(interaction: discord.Interaction):
-        if not await allowed(interaction) or not (s := await session_here(interaction)):
+        if not (s := await session_ready(interaction, need_free=False)):
             return
-        base = f"{s.thread_id}"
+        base = f"{s.session_id}"
         await interaction.response.send_message(
             "Transcript export:",
             files=[text_file(orch.export_markdown(s), f"{base}.md"), text_file(orch.export_json(s), f"{base}.json")],
@@ -339,47 +364,45 @@ def register(bot: "WaggleBot") -> None:
 
     @tree.command(name="pause", description="Stop the running command and block new ones")
     async def pause(interaction: discord.Interaction):
-        if not await allowed(interaction) or not (s := await session_here(interaction)):
+        if not (s := await session_ready(interaction, need_free=False)):
             return
-        was_running = orch.pause(s.thread_id)
+        was_running = orch.pause(s.session_id)
         note = " The running command was stopped; its unfinished replies were discarded." if was_running else ""
         await respond(interaction, f"Paused.{note} Use /resume to continue.", ephemeral=False)
 
     @tree.command(name="resume", description="Allow commands again after /pause")
     async def resume(interaction: discord.Interaction):
-        if not await allowed(interaction) or not (s := await session_here(interaction)):
+        if not (s := await session_ready(interaction, need_free=False)):
             return
-        orch.resume(s.thread_id)
+        orch.resume(s.session_id)
         await respond(interaction, "Resumed.", ephemeral=False)
 
-    @tree.command(name="close", description="End the session (permanent)")
+    @tree.command(name="close", description="End the conversation")
     @app_commands.describe(mode="summary runs a consensus first; quiet skips it",
                            summarizer="Model to write the summary (default: rotates)")
     @app_commands.autocomplete(summarizer=model_choices)
     async def close(interaction: discord.Interaction, mode: Literal["summary", "quiet"] = "summary",
                     summarizer: str | None = None):
-        if not await allowed(interaction) or not (s := await session_here(interaction)) or not await free(
-                interaction, s):
+        if not (s := await session_ready(interaction)):
             return
         key = model_key(s, summarizer) if summarizer else None
         if summarizer and not key:
-            return await respond(interaction, f"{summarizer} is not in this session.")
-        await respond(interaction, "Closing the session.")
-        thread = interaction.channel
+            return await respond(interaction, f"{summarizer} is not in this conversation.")
+        await respond(interaction, "Closing the conversation.")
 
         async def run_close():
             try:
-                await bot.close_session(thread, s, mode, key)
+                await bot.close_session(s, mode, key)
             except (Busy, Paused):
-                await bot.output(thread).post_status("Could not close: another command is running or the "
-                                                     "session is paused.")
+                await bot.output().post_status("Could not close: another command is running or the "
+                                               "conversation is paused.")
             except Exception as exc:
-                log.exception("Close failed in thread %s", thread.id)
-                await bot.output(thread).post_status(f"Close failed: {type(exc).__name__}: {str(exc)[:300]}")
+                log.exception("Close failed for session %s", s.session_id)
+                await bot.output().post_status(f"Close failed: {type(exc).__name__}: {str(exc)[:300]}")
 
-        asyncio.create_task(run_close())
+        bot.spawn(run_close())
 
-    # Anywhere
+    # Information and configuration
 
     @tree.command(name="models", description="List enabled models and their model IDs")
     async def models_cmd(interaction: discord.Interaction):
@@ -397,13 +420,13 @@ def register(bot: "WaggleBot") -> None:
     async def instructions(interaction: discord.Interaction, model: str | None = None):
         if not await allowed(interaction):
             return
-        s = bot.session_for(interaction.channel)
+        s = orch.current()
         keys = [model_key(s, model)] if model else (s.models if s else orch.enabled_keys())
         if None in keys:
             return await respond(interaction, f"Unknown model: {model}.")
         names = orch.names()
         text = "\n\n".join(f"===== {names[k]} =====\n\n{orch.system_for(k, s)}" for k in keys)
-        where = "this session" if s else "a new session with search off"
+        where = "the open conversation" if s else "a new conversation with search off"
         if len(text) <= 1900:
             await respond(interaction, f"Effective system prompt for {where}:\n```\n{text}\n```")
         else:
@@ -420,7 +443,7 @@ def register(bot: "WaggleBot") -> None:
             return await respond(interaction, f"Reload failed, keeping the old config: {exc}")
         await respond(interaction, f"Reloaded. {len(orch.enabled_keys())} models enabled.")
 
-    @tree.command(name="help", description="Command summary")
+    @tree.command(name="help", description="How to use waggle-dance")
     async def help_cmd(interaction: discord.Interaction):
         if not await allowed(interaction):
             return

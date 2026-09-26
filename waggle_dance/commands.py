@@ -174,7 +174,7 @@ def register(bot: "WaggleBot") -> None:
             f"Started {thread.mention} with {', '.join(names[k] for k in models)}. Search is "
             f"{'on' if search else 'off'}.", ephemeral=True,
         )
-        bot.start(thread, lambda out: orch.opening(s, out))
+        bot.run_in_thread(thread, lambda out: orch.opening(s, out))
 
     class ReviewModal(discord.ui.Modal, title="Review a post"):
         post = discord.ui.TextInput(label="Post text", style=discord.TextStyle.paragraph,
@@ -290,7 +290,7 @@ def register(bot: "WaggleBot") -> None:
                 interaction, s):
             return
         await respond(interaction, f"Starting {rounds} debate round{'s' if rounds > 1 else ''}.")
-        bot.start(interaction.channel, lambda out: orch.debate(s, rounds, out))
+        bot.run_in_thread(interaction.channel, lambda out: orch.debate(s, rounds, out))
 
     @tree.command(name="consensus", description="One model writes the outcome")
     @app_commands.describe(summarizer="Model to write it (default: rotates)")
@@ -303,7 +303,7 @@ def register(bot: "WaggleBot") -> None:
         if summarizer and not key:
             return await respond(interaction, f"{summarizer} is not in this session.")
         await respond(interaction, "Starting consensus.")
-        bot.start(interaction.channel, lambda out: orch.consensus(s, out, key))
+        bot.run_in_thread(interaction.channel, lambda out: orch.consensus(s, out, key))
 
     @tree.command(name="vote", description="Ranked vote with a Borda count")
     async def vote(interaction: discord.Interaction):
@@ -311,7 +311,7 @@ def register(bot: "WaggleBot") -> None:
                 interaction, s):
             return
         await respond(interaction, "Starting a vote.")
-        bot.start(interaction.channel, lambda out: orch.vote(s, out))
+        bot.run_in_thread(interaction.channel, lambda out: orch.vote(s, out))
 
     @tree.command(name="ask", description="One model answers; the others stay quiet")
     @app_commands.autocomplete(model=model_choices)
@@ -323,7 +323,7 @@ def register(bot: "WaggleBot") -> None:
         if not key:
             return await respond(interaction, f"{model} is not in this session.")
         await respond(interaction, f"Asking {orch.names()[key]}.")
-        bot.start(interaction.channel, lambda out: orch.ask(s, key, question, out))
+        bot.run_in_thread(interaction.channel, lambda out: orch.ask(s, key, question, out))
 
     @tree.command(name="role", description="Assign a stance to a model for the rest of the session")
     @app_commands.describe(role="skeptic, advocate, editor, target reader, your own text, or none")
@@ -348,7 +348,7 @@ def register(bot: "WaggleBot") -> None:
                 interaction, s):
             return
         await respond(interaction, "Listing disagreements.")
-        bot.start(interaction.channel, lambda out: orch.disagree(s, out))
+        bot.run_in_thread(interaction.channel, lambda out: orch.disagree(s, out))
 
     @tree.command(name="cost", description="Estimated tokens, searches, and dollars for this session")
     async def cost(interaction: discord.Interaction):

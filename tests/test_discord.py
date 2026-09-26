@@ -103,3 +103,10 @@ async def test_errors_and_status_come_from_the_bot_account(cfg):
     assert thread.sent[0][1]["embed"].title == "Gemini failed"
     assert [len(c) for c, _ in thread.sent[1:]] == [2000, 500]
     assert isinstance(thread.sent[1][1]["allowed_mentions"], discord.AllowedMentions)
+
+
+def test_bot_does_not_override_client_methods():
+    # A helper named start() once replaced discord.Client.start and broke login.
+    own = {n for n, v in vars(WaggleBot).items() if callable(v) and not n.startswith("_")}
+    overridable = {"setup_hook", "on_ready", "on_message", "close"}
+    assert not (own & set(dir(discord.Client))) - overridable

@@ -69,7 +69,7 @@ class WaggleBot(discord.Client):
     def output(self, thread: discord.Thread) -> ThreadOutput:
         return ThreadOutput(thread, self.webhook, self.orch.cfg)
 
-    def start(self, thread: discord.Thread, work: Callable[[ThreadOutput], Awaitable]) -> None:
+    def run_in_thread(self, thread: discord.Thread, work: Callable[[ThreadOutput], Awaitable]) -> None:
         """Run a session command in the background, one at a time per session."""
         out = self.output(thread)
 
@@ -120,7 +120,7 @@ class WaggleBot(discord.Client):
         self.orch.add_owner_message(s, message.content.strip())
         await message.add_reaction(SEEN)
         if target:
-            self.start(message.channel, lambda out: self.orch.ask(s, target, None, out))
+            self.run_in_thread(message.channel, lambda out: self.orch.ask(s, target, None, out))
 
     def _addressed_model(self, s: Session, text: str) -> str | None:
         """Return the model key if text starts with a model name and a colon or comma."""

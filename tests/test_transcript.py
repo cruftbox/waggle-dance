@@ -44,6 +44,6 @@ def test_rotation_changes_the_first_speaker_each_round():
 
 
 def test_style_filters_apply_in_order():
-    filters = [{"pattern": r"\s*—\s*", "replace": ", "}, {"pattern": "colour", "replace": "color"}]
-    assert apply_style_filters("A — B colour", filters) == "A, B color"
+    filters = [{"pattern": r"\s*\u2014\s*", "replace": ", "}, {"pattern": "colour", "replace": "color"}]
+    assert apply_style_filters("A \u2014 B colour", filters) == "A, B color"
     assert apply_style_filters("unchanged", []) == "unchanged"

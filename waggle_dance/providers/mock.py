@@ -17,13 +17,18 @@ class MockProvider:
         self.delay = delay
 
     async def generate(self, system, messages, max_tokens, search, cache_breakpoints=None) -> Reply:
-        await asyncio.sleep(self.delay * random.uniform(0.5, 1.5))
+        if self.delay:
+            await asyncio.sleep(self.delay * random.uniform(0.5, 1.5))
         msgs = normalize_messages(messages)
         last = msgs[-1]["content"] if msgs else ""
-        if '"ranking"' in last:
+        if '"candidates"' in last:
+            text = json.dumps({"candidates": ["Option A", "Option B", "Option C"]})
+        elif '"ranking"' in last:
             candidates = re.findall(r"^\s*\d+\.\s+(.+)$", last, flags=re.MULTILINE)
             random.shuffle(candidates)
             text = json.dumps({"ranking": candidates, "reason": f"Mock ranking from {self.display_name}."})
+        elif "title of 6 words" in last:
+            text = "Mock discussion title"
         else:
             text = (
                 f"This is a mock reply from {self.display_name}. "

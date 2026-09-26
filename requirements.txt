@@ -5,6 +5,5 @@ google-genai>=2.25.0,<3
 httpx>=0.28.1,<1
 trafilatura>=2.2.0,<3
 pypdf>=6.19.0,<7
-aiosqlite>=0.22.1,<1
 PyYAML>=6.0.3,<7
 python-dotenv>=1.2.3,<2

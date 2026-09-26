@@ -22,6 +22,7 @@ from waggle_dance.config import (
     load_dotenv_if_present,
     load_models_config,
 )
+from waggle_dance.costs import reply_cost
 from waggle_dance.providers import build_providers
 
 SYSTEM = "You are being tested by an automated script. Follow the instructions exactly."
@@ -55,17 +56,6 @@ CHECKS = {
 }
 
 
-def estimate(prices: dict, reply) -> float:
-    per_m = 1_000_000
-    return (
-        reply.input_tokens * prices["input"] / per_m
-        + reply.cached_tokens * prices["cached_input"] / per_m
-        + reply.cache_write_tokens * prices.get("cache_write", prices["input"]) / per_m
-        + reply.output_tokens * prices["output"] / per_m
-        + reply.search_calls * prices["per_search"]
-    )
-
-
 async def run_model(key, provider, cfg) -> tuple[list[str], bool]:
     lines = []
     failed = False
@@ -84,7 +74,7 @@ async def run_model(key, provider, cfg) -> tuple[list[str], bool]:
         detail = (
             f"in={reply.input_tokens} cached={reply.cached_tokens} out={reply.output_tokens} "
             f"searches={reply.search_calls} citations={len(reply.citations)} "
-            f"~${estimate(cfg['prices'], reply):.4f} {secs:.1f}s"
+            f"~${reply_cost(cfg['prices'], reply):.4f} {secs:.1f}s"
         )
         lines.append(f"  {name:8} {'PASS' if passed else 'FAIL'}  {detail}")
         preview = reply.text.replace("\n", " ")[:160]

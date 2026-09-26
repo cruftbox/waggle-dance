@@ -18,6 +18,10 @@ MODELS_PATH = ROOT / "config" / "models.yaml"
 MODELS_EXAMPLE = ROOT / "config" / "models.example.yaml"
 SHARED_PATH = ROOT / "instructions" / "shared.md"
 SHARED_EXAMPLE = ROOT / "instructions" / "shared.example.md"
+MODEL_INSTRUCTIONS_DIR = ROOT / "instructions" / "models"
+DATA_DIR = ROOT / "data"
+DB_PATH = DATA_DIR / "waggle.db"
+EXPORTS_DIR = DATA_DIR / "exports"
 
 PROVIDER_TYPES = {"anthropic", "openai_responses", "gemini"}
 MODEL_KEYS = ("claude", "chatgpt", "gemini", "muse")
@@ -145,6 +149,17 @@ def validate_models_config(cfg: dict, source: str = "models.yaml") -> None:
                 fail(f"{where}.prices.{field} must be a number >= 0")
     if not any(m.get("enabled", True) for m in models.values()):
         fail("no models are enabled")
+
+
+def load_instructions() -> dict:
+    """Read instructions/shared.md and instructions/models/<key>.md."""
+    shared_path = SHARED_PATH if SHARED_PATH.exists() else SHARED_EXAMPLE
+    shared = shared_path.read_text(encoding="utf-8") if shared_path.exists() else ""
+    models = {}
+    if MODEL_INSTRUCTIONS_DIR.is_dir():
+        for p in sorted(MODEL_INSTRUCTIONS_DIR.glob("*.md")):
+            models[p.stem] = p.read_text(encoding="utf-8")
+    return {"shared": shared, "models": models}
 
 
 def enabled_models(cfg: dict) -> dict[str, dict]:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import discord
 from discord import app_commands
@@ -32,8 +32,8 @@ In the open conversation:
 `/consensus [summarizer]` one model writes the outcome
 `/cost` estimated spend so far
 `/export` transcript as Markdown and JSON
-`/close [summarizer]` end the conversation: one model sums up, then the transcript is posted
-`/close mode:quiet` just end it, posting nothing
+`/close` end the conversation, posting nothing
+`/close summarize:True` one model writes a consensus, then the transcript is posted
 
 Also: `/models`, `/instructions [model]`, `/reload`, `/help`"""
 
@@ -208,14 +208,11 @@ def register(bot: "WaggleBot") -> None:
         )
 
     @tree.command(name="close", description="End the conversation")
-    @app_commands.describe(mode="summary: a model sums up and the transcript is posted. quiet: close, post nothing",
-                           summarizer="Model to write the summary (default: rotates)")
-    @app_commands.autocomplete(summarizer=model_choices)
-    async def close(interaction: discord.Interaction, mode: Literal["summary", "quiet"] = "summary",
-                    summarizer: str | None = None):
+    @app_commands.describe(summarize="Have a model write a consensus first, then post the transcript")
+    async def close(interaction: discord.Interaction, summarize: bool = False):
         if not (s := await session_ready(interaction)):
             return
-        if mode == "quiet":
+        if not summarize:
             # Nothing in the channel. The export is still saved to disk, and
             # the only reply is a private note that removes itself.
             try:
@@ -223,14 +220,11 @@ def register(bot: "WaggleBot") -> None:
             except Busy:
                 return await respond(interaction, "Could not close: another command is running.")
             return await interaction.response.send_message("Closed.", ephemeral=True, delete_after=5)
-        key = model_key(s, summarizer) if summarizer else None
-        if summarizer and not key:
-            return await respond(interaction, f"{summarizer} is not in this conversation.")
         await respond(interaction, "Closing the conversation.")
 
         async def run_close():
             try:
-                await bot.close_session(s, mode, key)
+                await bot.close_session(s, "summary")
             except Busy:
                 await bot.output().post_status("Could not close: another command is running.")
             except Exception as exc:

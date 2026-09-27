@@ -65,11 +65,6 @@ class Session:
     def next_seq(self) -> int:
         return self.entries[-1].seq + 1 if self.entries else 1
 
-    def needs_consensus(self) -> bool:
-        if self.consensus_seq is None:
-            return True
-        return any(e.seq > self.consensus_seq and e.kind in ("owner", "model") for e in self.entries)
-
 
 class Orchestrator:
     def __init__(self, cfg: dict, providers: dict[str, Provider], store: Store, instructions: dict,
@@ -373,16 +368,16 @@ class Orchestrator:
     def total_cost(self, s: Session) -> float:
         return sum(u["cost"] or 0 for u in self.store.usage_by_model(s.session_id).values())
 
-    async def close(self, s: Session, out: Output, mode: str = "summary",
-                    summarizer: str | None = None, announce: bool = True) -> tuple[Path, Path, str]:
+    async def close(self, s: Session, out: Output, mode: str = "quiet",
+                    announce: bool = True) -> tuple[Path, Path, str]:
         """Post a closing record, write exports, mark closed, and drop the session from memory.
 
         With announce=False, nothing is posted; the caller says what happened.
 
         The bot attaches the Markdown export in Discord afterward.
         """
-        if mode == "summary" and s.needs_consensus() and any(e.kind == "model" for e in s.entries):
-            await self.consensus(s, out, summarizer)
+        if mode == "summary" and any(e.kind == "model" for e in s.entries):
+            await self.consensus(s, out)
         names = self.names()
         record = [
             f"Conversation closed: {s.title}",

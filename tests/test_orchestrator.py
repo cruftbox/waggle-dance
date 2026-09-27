@@ -63,16 +63,13 @@ async def test_vote_tallies_in_code_and_drops_bad_ballot(orch, providers, cfg, o
     assert len(providers["muse"].calls) == 2
 
 
-async def test_consensus_is_one_turn_and_tracks_freshness(orch, out):
+async def test_consensus_is_one_turn(orch, out):
     s = new(orch)
     await orch.opening(s, out)
     entry = await orch.consensus(s, out, summarizer="claude")
     assert not out.votes
     assert out.posts[-1][0] == "claude" and out.posts[-1][3] == "Consensus"
     assert entry.phase == "consensus" and s.consensus_seq == entry.seq
-    assert not s.needs_consensus()
-    orch.add_owner_message(s, "one more thing")
-    assert s.needs_consensus()
 
 
 async def test_summarizer_rotates_across_sessions(orch, out):
@@ -96,11 +93,12 @@ async def test_close_writes_exports_and_releases_state(orch, out, store):
     assert store.open_session_ids() == []
 
 
-async def test_close_summary_runs_consensus_when_stale(orch, out):
+async def test_close_summary_always_writes_a_consensus(orch, out):
     s = new(orch)
     await orch.opening(s, out)
-    await orch.close(s, out, mode="summary", summarizer="gemini")
-    assert out.posts[-1][0] == "gemini" and out.posts[-1][3] == "Consensus"
+    await orch.consensus(s, out)
+    await orch.close(s, out, mode="summary")
+    assert [p[3] for p in out.posts].count("Consensus") == 2
 
 
 async def test_session_save_and_restore(orch, cfg, providers, store, out, tmp_path):

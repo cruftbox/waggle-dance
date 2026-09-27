@@ -81,6 +81,11 @@ FOLLOW_UP = (
 
 ASK = "{owner} asked you a question in the latest message. Answer it directly."
 
+DISAGREE = (
+    "List only the points where the participants disagree. For each point, say who holds which position, "
+    "attributed by name. Skip everything they agree on. If there are no real disagreements, say so in one sentence."
+)
+
 CONSENSUS = {
     "discuss": (
         "You are writing the outcome of this discussion. Give: the key points raised, where the participants agree, "
@@ -94,6 +99,24 @@ CONSENSUS = {
         "Drop edits that later discussion rejected, and edits that ask for academic rigor a blog post does not need."
     ),
 }
+
+VOTE_EXTRACT = {
+    "discuss": "the distinct positions or options proposed in this discussion",
+    "review": "the edits proposed in this discussion, each as a short label that names the passage and the change",
+}
+
+VOTE_EXTRACT_INSTRUCTION = (
+    "List {what}. Merge duplicates. Use short, distinct names, at most 8 items. "
+    'Reply with JSON only, no other text, in this form: {{"candidates": ["first", "second"]}}'
+)
+
+VOTE_RANK_INSTRUCTION = (
+    "Rank these candidates from best to worst, based on the discussion:\n\n{numbered}\n\n"
+    "Include every candidate exactly once, using the exact text shown. "
+    'Reply with JSON only, no other text, in this form: {{"ranking": ["best", "next"], "reason": "one line"}}'
+)
+
+JSON_RETRY = "Your last reply could not be used: {error}. Reply again with JSON only, in the form requested."
 
 TITLE = (
     "Write a title of 6 words or fewer for a discussion thread about the text below. "

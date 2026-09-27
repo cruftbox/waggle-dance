@@ -56,10 +56,26 @@ async def test_ask_has_only_one_model_answer(orch, providers, out):
     assert providers["claude"].calls == []
 
 
+async def test_vote_tallies_in_code_and_drops_bad_ballot(orch, providers, cfg, out):
+    providers["muse"] = RecordingProvider("muse", cfg["models"]["muse"], replies=["not json", "still not json"])
+    orch.providers = providers
+    s = new(orch)
+    text = await orch.vote(s, out)
+    vote = out.votes[0]
+    assert set(vote["ballots"]) == {"claude", "chatgpt", "gemini"}
+    assert "muse" in vote["dropped"]
+    assert sum(r.points for r in vote["rows"]) == 3 * (2 + 1 + 0)
+    assert "Muse Spark's vote was dropped" in text
+    assert s.entries[-1].kind == "system"
+    # Muse was asked twice: once, then once more with the error.
+    assert len(providers["muse"].calls) == 2
+
+
 async def test_consensus_is_one_turn_and_tracks_freshness(orch, out):
     s = new(orch)
     await orch.opening(s, out)
     entry = await orch.consensus(s, out, summarizer="claude")
+    assert not out.votes
     assert out.posts[-1][0] == "claude" and out.posts[-1][3] == "Consensus"
     assert entry.phase == "consensus" and s.consensus_seq == entry.seq
     assert not s.needs_consensus()

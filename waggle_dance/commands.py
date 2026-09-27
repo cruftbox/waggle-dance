@@ -27,6 +27,8 @@ Start a new conversation (closes the open one):
 `/review url` critique a post at a link; optional `context`
 
 In the open conversation:
+`/disagree` one model lists only the disagreements
+`/vote` ranked vote, tallied with a Borda count
 `/consensus [summarizer]` one model writes the outcome
 `/cost` estimated spend so far
 `/export` transcript as Markdown and JSON
@@ -178,6 +180,20 @@ def register(bot: "WaggleBot") -> None:
             return await respond(interaction, f"{summarizer} is not in this conversation.")
         await respond(interaction, "Starting consensus.")
         bot.run_command(s, lambda out: orch.consensus(s, out, key))
+
+    @tree.command(name="vote", description="Ranked vote with a Borda count")
+    async def vote(interaction: discord.Interaction):
+        if not (s := await session_ready(interaction)):
+            return
+        await respond(interaction, "Starting a vote.")
+        bot.run_command(s, lambda out: orch.vote(s, out))
+
+    @tree.command(name="disagree", description="One model lists only the points of disagreement")
+    async def disagree(interaction: discord.Interaction):
+        if not (s := await session_ready(interaction)):
+            return
+        await respond(interaction, "Listing disagreements.")
+        bot.run_command(s, lambda out: orch.disagree(s, out))
 
     @tree.command(name="cost", description="Estimated tokens, searches, and dollars for this conversation")
     async def cost(interaction: discord.Interaction):

@@ -35,6 +35,7 @@ class FakeOutput:
         self.posts = []  # (key, text, citations, footer)
         self.errors = []
         self.status = []
+        self.votes = []
         self._next_id = 1000
 
     @asynccontextmanager
@@ -51,6 +52,9 @@ class FakeOutput:
 
     async def post_status(self, text):
         self.status.append(text)
+
+    async def post_vote(self, rows, ballots, reasons, dropped, names):
+        self.votes.append({"rows": rows, "ballots": ballots, "reasons": reasons, "dropped": dropped})
 
 
 @pytest.fixture

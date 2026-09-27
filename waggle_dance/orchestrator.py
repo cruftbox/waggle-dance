@@ -1,4 +1,4 @@
-"""Session flow: opening, follow-ups, ask, consensus, close.
+"""Session flow: opening, follow-ups, ask, disagree, vote, consensus, close.
 
 Nothing here talks to Discord directly. Commands post through an Output
 object, which the bot implements with webhooks and tests implement with lists.
@@ -19,7 +19,8 @@ from . import costs, ingest, prompts
 from .config import enabled_models, model_timeout, today_text
 from .providers.base import Provider, ProviderError, Reply
 from .store import Store
-from .transcript import OWNER, Entry, apply_style_filters, build_view, now_iso, rotate
+from .transcript import MODERATOR, OWNER, Entry, apply_style_filters, build_view, now_iso, rotate
+from .voting import VoteError, borda, parse_ballot, parse_candidates, tally_text
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ class Output(Protocol):
     async def post_model(self, key: str, text: str, citations: list[dict], footer: str) -> list[int]: ...
     async def post_error(self, key: str, message: str) -> None: ...
     async def post_status(self, text: str) -> None: ...
+    async def post_vote(self, rows, ballots: dict, reasons: dict, dropped: dict, names: dict) -> None: ...
 
 
 @dataclass
@@ -230,7 +232,8 @@ class Orchestrator:
 
     def _footer(self, s: Session, key: str, phase: str) -> str:
         """A short label shown under a reply. Empty for plain opening replies and answers."""
-        return "Consensus" if phase == "consensus" else ""
+        labels = {"disagree": "Disagreements", "consensus": "Consensus"}
+        return labels.get(phase, "")
 
     async def _turn(self, s: Session, key: str, messages: list[dict], breakpoints: list[int], phase: str,
                     out: Output) -> Entry | None:
@@ -250,6 +253,11 @@ class Orchestrator:
         entry.message_ids = await out.post_model(key, text, citations, self._footer(s, key, phase))
         self.store.set_message_ids(s.session_id, entry.seq, entry.message_ids)
         return entry
+
+    async def _raw(self, s: Session, key: str, messages: list[dict]) -> str:
+        """A model call whose reply is used by code (votes), not posted or recorded."""
+        reply = await self._generate(s, key, messages, [])
+        return reply.text
 
     # Spend warning
 
@@ -304,6 +312,75 @@ class Orchestrator:
 
     def _rotating(self, s: Session, counter: str) -> str:
         return s.models[self.store.next_counter(counter) % len(s.models)]
+
+    async def disagree(self, s: Session, out: Output) -> None:
+        key = self._rotating(s, "disagree")
+        await self.warn_if_expensive(s, {key: 1}, out)
+        await out.post_status(f"{self.names()[key]} is listing the disagreements.")
+        async with out.typing():
+            await self._turn(s, key, *self.view(s, key, prompts.DISAGREE), "disagree", out)
+
+    async def vote(self, s: Session, out: Output, summarizer: str | None = None) -> str | None:
+        """Extract candidates, collect ranked ballots, and tally them in code."""
+        names = self.names()
+        key = summarizer or self._rotating(s, "summarizer")
+        if summarizer is None:
+            calls = {k: 1 for k in s.models}
+            calls[key] += 1
+            await self.warn_if_expensive(s, calls, out)
+        await out.post_status(f"{names[key]} is listing the candidates for a vote.")
+
+        extract = prompts.fill(prompts.VOTE_EXTRACT_INSTRUCTION, what=prompts.VOTE_EXTRACT[s.mode])
+        async with out.typing():
+            candidates, error = await self._json_call(s, key, extract, parse_candidates)
+        if candidates is None:
+            await out.post_status(f"The vote was skipped: {names[key]} did not return a usable list ({error}).")
+            return None
+
+        numbered = "\n".join(f"{i}. {c}" for i, c in enumerate(candidates, 1))
+        rank_instruction = prompts.fill(prompts.VOTE_RANK_INSTRUCTION, numbered=numbered)
+
+        async def ballot(k: str):
+            return k, await self._json_call(s, k, rank_instruction, lambda t: parse_ballot(t, candidates))
+
+        async with out.typing():
+            results = await asyncio.gather(*(ballot(k) for k in s.models))
+        ballots, reasons, dropped = {}, {}, {}
+        for k, (parsed, error) in results:
+            if parsed is None:
+                dropped[k] = error
+            else:
+                ballots[k], reasons[k] = parsed
+        if not ballots:
+            await out.post_status("The vote failed: no model returned a usable ballot.")
+            return None
+        rows = borda(candidates, ballots)
+        await out.post_vote(rows, ballots, reasons, dropped, names)
+        text = tally_text(rows, ballots, reasons, names, dropped)
+        self._append(s, Entry(seq=s.next_seq(), speaker=MODERATOR, kind="system", phase="vote",
+                              round=0, text=text))
+        return text
+
+    async def _json_call(self, s: Session, key: str, instruction: str, parse):
+        """Call a model for JSON. Retry once with the parse error. Returns (result, error)."""
+        messages, _ = self.view(s, key, instruction)
+        error = ""
+        for attempt in range(2):
+            try:
+                text = await self._raw(s, key, messages)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                return None, _error_text(exc)
+            try:
+                return parse(text), ""
+            except VoteError as exc:
+                error = str(exc)
+                messages = messages + [
+                    {"role": "assistant", "content": text},
+                    {"role": "user", "content": prompts.fill(prompts.JSON_RETRY, error=error)},
+                ]
+        return None, error
 
     async def consensus(self, s: Session, out: Output, summarizer: str | None = None) -> Entry | None:
         names = self.names()

@@ -113,7 +113,7 @@ class ChannelOutput:
     """Implements orchestrator.Output for the bot's channel.
 
     Model replies go through the webhook under each model's name. Status
-    messages and errors come from the bot account.
+    messages, errors, and vote tables come from the bot account.
     """
 
     def __init__(self, channel: discord.TextChannel, webhook: discord.Webhook, cfg: dict):
@@ -146,3 +146,24 @@ class ChannelOutput:
     async def post_status(self, text: str) -> None:
         for chunk in split_text(text, MESSAGE_LIMIT):
             await self.channel.send(chunk, allowed_mentions=NO_MENTIONS, suppress_embeds=True)
+
+    async def post_vote(self, rows, ballots: dict, reasons: dict, dropped: dict, names: dict) -> None:
+        for chunk in vote_messages(rows, ballots, reasons, dropped, names):
+            await self.channel.send(chunk, allowed_mentions=NO_MENTIONS)
+
+
+def vote_messages(rows, ballots: dict, reasons: dict, dropped: dict, names: dict) -> list[str]:
+    voters = list(ballots)
+    short = {k: names.get(k, k)[:8] for k in voters}
+    width = min(max(len(r.candidate) for r in rows), 28)
+    header = f"{'#':>2} {'Candidate':<{width}} {'Pts':>3} " + " ".join(f"{short[k]:>8}" for k in voters)
+    lines = [header, "-" * len(header)]
+    for r in rows:
+        cand = r.candidate if len(r.candidate) <= width else r.candidate[: width - 1] + "~"
+        ranks = " ".join(f"{(str(r.ranks.get(k)) if r.ranks.get(k) else '-'):>8}" for k in voters)
+        lines.append(f"{r.place:>2} {cand:<{width}} {r.points:>3} {ranks}")
+    table = "**Vote (Borda count)**\n```\n" + "\n".join(lines) + "\n```"
+    notes = [f"**{names.get(k, k)}:** {reasons[k]}" for k in voters if reasons.get(k)]
+    notes += [f"**{names.get(k, k)}:** vote dropped ({why})" for k, why in dropped.items()]
+    notes.append("-# With n candidates, 1st place scores n-1 and last scores 0. Tallied in code.")
+    return [table[:MESSAGE_LIMIT]] + split_text("\n".join(notes), MESSAGE_LIMIT)

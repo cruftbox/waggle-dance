@@ -1,4 +1,4 @@
-"""Session flow: opening, debate, ask, disagree, vote, consensus, close.
+"""Session flow: opening, follow-ups, ask, disagree, vote, consensus, close.
 
 Nothing here talks to Discord directly. Commands post through an Output
 object, which the bot implements with webhooks and tests implement with lists.
@@ -25,7 +25,6 @@ from .voting import VoteError, borda, parse_ballot, parse_candidates, tally_text
 log = logging.getLogger(__name__)
 
 MODES = ("review", "recommend", "discuss")
-MAX_DEBATE_ROUNDS = 5
 
 
 class Busy(Exception):
@@ -57,7 +56,6 @@ class Session:
     status: str = "open"
     entries: list[Entry] = field(default_factory=list)
     roles: dict[str, str] = field(default_factory=dict)
-    debate_round: int = 0  # debate rounds completed
     consensus_seq: int | None = None  # seq of the latest consensus entry
     created: str = field(default_factory=now_iso)
     last_activity: str = field(default_factory=now_iso)
@@ -66,7 +64,6 @@ class Session:
         return {
             "models": self.models,
             "search": self.search,
-            "debate_round": self.debate_round,
             "consensus_seq": self.consensus_seq,
         }
 
@@ -147,7 +144,7 @@ class Orchestrator:
             session_id=session_id, mode=row["mode"], topic=row["topic"], title=row["title"],
             submission=row["submission"], constraints=row["constraints"], models=st.get("models", []),
             search=bool(st.get("search")), status=row["status"], entries=row["entries"], roles=row["roles"],
-            debate_round=st.get("debate_round", 0), consensus_seq=st.get("consensus_seq"),
+            consensus_seq=st.get("consensus_seq"),
             created=row["created"], last_activity=row["last_activity"],
         )
 
@@ -171,7 +168,7 @@ class Orchestrator:
 
     def add_owner_message(self, s: Session, text: str) -> Entry:
         return self._append(s, Entry(seq=s.next_seq(), speaker=OWNER, kind="owner", phase="owner",
-                                     round=s.debate_round, text=text))
+                                     round=0, text=text))
 
     def set_role(self, s: Session, key: str, role: str | None) -> None:
         if role:
@@ -241,10 +238,9 @@ class Orchestrator:
                              reply.cache_write_tokens, reply.search_calls, cost)
         return reply
 
-    def _footer(self, s: Session, key: str, phase: str, rnd: int) -> str:
+    def _footer(self, s: Session, key: str, phase: str) -> str:
         """A short label shown under a reply. Empty for plain opening replies and answers."""
         labels = {
-            "debate": f"Debate round {rnd}",
             "disagree": "Disagreements",
             "consensus": "Consensus",
         }
@@ -254,7 +250,7 @@ class Orchestrator:
         return " | ".join(parts)
 
     async def _turn(self, s: Session, key: str, messages: list[dict], breakpoints: list[int], phase: str,
-                    rnd: int, out: Output) -> Entry | None:
+                    out: Output) -> Entry | None:
         """Generate, record, and post one model reply. Posts an error and returns None on failure."""
         try:
             reply = await self._generate(s, key, messages, breakpoints)
@@ -268,9 +264,9 @@ class Orchestrator:
         if s.mode == "recommend":
             text = text.replace("NO SOURCE", "**NO SOURCE**")
         citations = await ingest.resolve_redirects(reply.citations)
-        entry = self._append(s, Entry(seq=s.next_seq(), speaker=key, kind="model", phase=phase, round=rnd,
+        entry = self._append(s, Entry(seq=s.next_seq(), speaker=key, kind="model", phase=phase, round=0,
                                       text=text, citations=citations))
-        entry.message_ids = await out.post_model(key, text, citations, self._footer(s, key, phase, rnd))
+        entry.message_ids = await out.post_model(key, text, citations, self._footer(s, key, phase))
         self.store.set_message_ids(s.session_id, entry.seq, entry.message_ids)
         return entry
 
@@ -308,21 +304,7 @@ class Orchestrator:
         instruction = prompts.fill(prompts.OPENING[s.mode], owner=self.owner_name)
         views = {k: self.view(s, k, instruction) for k in s.models}
         async with out.typing():
-            await asyncio.gather(*(self._turn(s, k, *views[k], "opening", 0, out) for k in s.models))
-
-    async def debate(self, s: Session, rounds: int, out: Output) -> None:
-        """Sequential turns. Each model sees everything so far, including this round."""
-        rounds = max(1, min(MAX_DEBATE_ROUNDS, rounds))
-        await self.warn_if_expensive(s, {k: rounds for k in s.models}, out)
-        for _ in range(rounds):
-            rnd = s.debate_round + 1
-            order = rotate(s.models, s.debate_round)
-            instruction = prompts.fill(prompts.DEBATE, round=rnd)
-            for key in order:
-                async with out.typing():
-                    await self._turn(s, key, *self.view(s, key, instruction), "debate", rnd, out)
-            s.debate_round = rnd
-            self._save(s)
+            await asyncio.gather(*(self._turn(s, k, *views[k], "opening", out) for k in s.models))
 
     async def follow_up(self, s: Session, out: Output) -> None:
         """Every model replies to the owner's latest message, one after another.
@@ -335,7 +317,7 @@ class Orchestrator:
         instruction = prompts.fill(prompts.FOLLOW_UP, owner=self.owner_name)
         for key in rotate(s.models, max(owner_messages - 1, 0)):
             async with out.typing():
-                await self._turn(s, key, *self.view(s, key, instruction), "reply", s.debate_round, out)
+                await self._turn(s, key, *self.view(s, key, instruction), "reply", out)
 
     async def ask(self, s: Session, key: str, question: str | None, out: Output) -> None:
         """One model answers. With question=None, the owner's latest message is the question."""
@@ -344,7 +326,7 @@ class Orchestrator:
             self.add_owner_message(s, f"(to {self.names()[key]}) {question}")
         instruction = prompts.fill(prompts.ASK, owner=self.owner_name)
         async with out.typing():
-            await self._turn(s, key, *self.view(s, key, instruction), "ask", s.debate_round, out)
+            await self._turn(s, key, *self.view(s, key, instruction), "ask", out)
 
     def _rotating(self, s: Session, counter: str) -> str:
         return s.models[self.store.next_counter(counter) % len(s.models)]
@@ -354,7 +336,7 @@ class Orchestrator:
         await self.warn_if_expensive(s, {key: 1}, out)
         await out.post_status(f"{self.names()[key]} is listing the disagreements.")
         async with out.typing():
-            await self._turn(s, key, *self.view(s, key, prompts.DISAGREE), "disagree", s.debate_round, out)
+            await self._turn(s, key, *self.view(s, key, prompts.DISAGREE), "disagree", out)
 
     async def vote(self, s: Session, out: Output, summarizer: str | None = None) -> str | None:
         """Extract candidates, collect ranked ballots, and tally them in code."""
@@ -394,7 +376,7 @@ class Orchestrator:
         await out.post_vote(rows, ballots, reasons, dropped, names)
         text = tally_text(rows, ballots, reasons, names, dropped)
         self._append(s, Entry(seq=s.next_seq(), speaker=MODERATOR, kind="system", phase="vote",
-                              round=s.debate_round, text=text))
+                              round=0, text=text))
         return text
 
     async def _json_call(self, s: Session, key: str, instruction: str, parse):
@@ -431,8 +413,7 @@ class Orchestrator:
         if s.mode == "recommend":
             await self.vote(s, out, summarizer=key)
         async with out.typing():
-            entry = await self._turn(s, key, *self.view(s, key, prompts.CONSENSUS[s.mode]), "consensus",
-                                     s.debate_round, out)
+            entry = await self._turn(s, key, *self.view(s, key, prompts.CONSENSUS[s.mode]), "consensus", out)
         if entry:
             s.consensus_seq = entry.seq
             self._save(s)
@@ -513,7 +494,7 @@ class Orchestrator:
         for e in s.entries:
             who = self.owner_name if e.kind == "owner" else "Moderator" if e.kind == "system" else names.get(
                 e.speaker, e.speaker)
-            lines += ["", f"### {who} ({e.phase}{f', round {e.round}' if e.phase == 'debate' else ''})", "", e.text]
+            lines += ["", f"### {who} ({e.phase})", "", e.text]
             if e.citations:
                 lines += ["", "Sources:"] + [f"- [{c['title']}]({c['url']})" for c in e.citations]
         lines += ["", "## Cost", "", self.cost_report(s), ""]

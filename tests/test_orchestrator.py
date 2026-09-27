@@ -37,34 +37,13 @@ async def test_system_prompt_layers_shared_model_rules_and_role(orch, providers,
     assert "GEMINI ONLY" not in claude and "skeptic" not in claude
 
 
-async def test_debate_turns_see_earlier_turns_in_the_same_round(orch, providers, out):
-    s = new(orch)
-    await orch.opening(s, out)
-    await orch.debate(s, 1, out)
-    order = [p[0] for p in out.posts[4:]]
-    assert order == MODELS  # round 1 starts with the first model
-    last = providers[order[-1]].calls[-1]["messages"]
-    text = "\n".join(m["content"] for m in last)
-    for key in order[:-1]:
-        name = orch.names()[key]
-        assert f"[{name}]: This is a mock reply from {name}" in text
-
-
-async def test_debate_rotates_the_first_speaker(orch, out):
-    s = new(orch)
-    await orch.debate(s, 3, out)
-    firsts = [out.posts[i][0] for i in (0, 4, 8)]
-    assert firsts == ["claude", "chatgpt", "gemini"]
-    assert s.debate_round == 3
-    assert [p[3] for p in out.posts[:1]] == ["Debate round 1"]
-
-
 async def test_failed_provider_does_not_stop_the_session(orch, providers, cfg, out):
     providers["chatgpt"] = RecordingProvider("chatgpt", cfg["models"]["chatgpt"], fail=True)
     orch.providers = providers
     s = new(orch)
     await orch.opening(s, out)
-    await orch.debate(s, 1, out)
+    orch.add_owner_message(s, "follow-up")
+    await orch.follow_up(s, out)
     assert out.errors == [("chatgpt", "simulated failure")] * 2
     assert len(out.posts) == 6
     assert all(e.speaker != "chatgpt" for e in s.entries)
@@ -137,19 +116,20 @@ async def test_session_save_and_restore(orch, cfg, providers, store, out, tmp_pa
     orch.set_role(s, "claude", "editor")
     await orch.opening(s, out)
     orch.add_owner_message(s, "hello")
-    await orch.debate(s, 1, out)
+    await orch.follow_up(s, out)
 
     restored = Orchestrator(cfg, providers, store, {}, "Michael", tmp_path / "exports")
     assert restored.load_open_sessions() == 1
     r = restored.get(1)
-    assert r.search is True and r.debate_round == 1 and r.roles == {"claude": "editor"}
+    assert r.search is True and r.roles == {"claude": "editor"}
     assert [(e.seq, e.speaker, e.text, e.message_ids) for e in r.entries] == [
         (e.seq, e.speaker, e.text, e.message_ids) for e in s.entries
     ]
     assert r.entries[0].citations == [{"title": "Example source", "url": "https://example.com/"}]
     # The restored session keeps working.
-    await restored.debate(r, 1, out)
-    assert r.debate_round == 2
+    restored.add_owner_message(r, "after restart")
+    await restored.follow_up(r, out)
+    assert len(r.entries) == len(s.entries) + 5
 
 
 async def test_run_is_exclusive_and_pause_cancels(orch, out):

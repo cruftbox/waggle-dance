@@ -12,7 +12,7 @@ from discord import app_commands
 from . import ingest
 from .config import ConfigError
 from .discord_io import text_file
-from .orchestrator import MAX_DEBATE_ROUNDS, Busy, Paused, Session
+from .orchestrator import Busy, Paused, Session
 from .prompts import ROLE_PRESETS
 
 if TYPE_CHECKING:
@@ -35,7 +35,6 @@ Start a new conversation (closes the open one):
 These take `models` (for example `claude, gemini`); `/discuss` and `/review` take `search` (`on` or `off`).
 
 In the open conversation:
-`/debate [rounds]` sequential turns, 1 to 5 rounds
 `/ask model question` one model answers
 `/role model role` set a stance (skeptic, advocate, editor, target reader, or your own); `none` clears
 `/disagree` one model lists only the disagreements
@@ -282,15 +281,6 @@ def register(bot: "WaggleBot") -> None:
         if s is None or (need_free and not await free(interaction, s)):
             return None
         return s
-
-    @tree.command(name="debate", description="Sequential debate turns")
-    @app_commands.describe(rounds=f"Number of rounds, 1 to {MAX_DEBATE_ROUNDS}")
-    async def debate(interaction: discord.Interaction,
-                     rounds: app_commands.Range[int, 1, MAX_DEBATE_ROUNDS] = 1):
-        if not (s := await session_ready(interaction)):
-            return
-        await respond(interaction, f"Starting {rounds} debate round{'s' if rounds > 1 else ''}.")
-        bot.run_command(s, lambda out: orch.debate(s, rounds, out))
 
     @tree.command(name="consensus", description="One model writes the outcome")
     @app_commands.describe(summarizer="Model to write it (default: rotates)")

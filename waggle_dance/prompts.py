@@ -95,11 +95,6 @@ OPENING = {
     ),
 }
 
-DEBATE = (
-    "It is your turn in the debate (round {round}). Respond to the points made so far, especially the most recent "
-    "ones. Push back where you disagree, concede where you were wrong, and add anything important that is missing."
-)
-
 FOLLOW_UP = (
     "{owner} just posted the latest message. Reply to it. If other participants have already replied to it "
     "above, respond to their points as well instead of repeating them."

@@ -11,7 +11,7 @@ from waggle_dance.discord_io import ChannelOutput, reply_messages, sources_line,
 from waggle_dance.voting import borda
 
 EXPECTED = {
-    "new", "review", "recommend", "discuss", "debate", "consensus", "vote", "ask", "role", "disagree", "cost",
+    "new", "review", "recommend", "discuss", "consensus", "vote", "ask", "role", "disagree", "cost",
     "export", "pause", "resume", "close", "models", "instructions", "reload", "help",
 }
 CHANNEL = 2
@@ -117,8 +117,8 @@ def test_sources_line_caps_at_five_and_suppresses_previews():
 
 
 def test_reply_messages_put_sources_and_label_in_small_text():
-    msgs = reply_messages("Short answer.", [{"title": "S", "url": "https://s.example/"}], "Debate round 2")
-    assert msgs == ["Short answer.\n-# Sources: [S](<https://s.example/>)\n-# Debate round 2"]
+    msgs = reply_messages("Short answer.", [{"title": "S", "url": "https://s.example/"}], "Consensus")
+    assert msgs == ["Short answer.\n-# Sources: [S](<https://s.example/>)\n-# Consensus"]
     assert reply_messages("Plain.", [], "") == ["Plain."]
 
 

@@ -209,6 +209,8 @@ def register(bot: "WaggleBot") -> None:
             return await respond(interaction, error)
         await interaction.response.defer(ephemeral=True, thinking=True)
         url = url.strip()
+        # Fetching linked PDFs can take a while; show that something is happening.
+        await bot.output().post_status("-# Reading the post and any pages it links to...")
         try:
             page_title, text = await ingest.fetch_url(url)
         except ingest.IngestError as exc:

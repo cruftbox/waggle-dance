@@ -29,10 +29,19 @@ def _check_length(text: str) -> str:
     return text
 
 
-def pdf_text(data: bytes) -> str:
+def pdf_text(data: bytes, stop_after: int | None = None) -> str:
+    """Extract PDF text. With stop_after, stop reading pages once that many characters are collected."""
     try:
         reader = PdfReader(io.BytesIO(data))
-        return "\n\n".join(page.extract_text() or "" for page in reader.pages)
+        pages: list[str] = []
+        size = 0
+        for page in reader.pages:
+            text = page.extract_text() or ""
+            pages.append(text)
+            size += len(text) + 2
+            if stop_after is not None and size >= stop_after:
+                break
+        return "\n\n".join(pages)
     except Exception as exc:
         raise IngestError(f"could not read the PDF ({type(exc).__name__})") from None
 
@@ -48,8 +57,11 @@ def html_text(html: str, url: str | None = None) -> tuple[str, str]:
     return title, text
 
 
-async def fetch_url(url: str, timeout: float = 30.0) -> tuple[str, str]:
-    """Download a URL and return (title, text). Handles HTML and PDF."""
+async def fetch_url(url: str, timeout: float = 30.0, pdf_stop_after: int | None = None) -> tuple[str, str]:
+    """Download a URL and return (title, text). Handles HTML and PDF.
+
+    pdf_stop_after stops PDF extraction early; large PDFs take a long time to read in full.
+    """
     if not url.lower().startswith(("http://", "https://")):
         raise IngestError("the URL must start with http:// or https://")
     try:
@@ -73,7 +85,7 @@ async def fetch_url(url: str, timeout: float = 30.0) -> tuple[str, str]:
         raise IngestError(f"could not fetch the URL ({type(exc).__name__})") from None
 
     if "pdf" in ctype or url.lower().split("?")[0].endswith(".pdf"):
-        text = await asyncio.to_thread(pdf_text, data)
+        text = await asyncio.to_thread(pdf_text, data, pdf_stop_after)
         return "", _check_length(text)
     html = data.decode(encoding, errors="replace")
     title, text = await asyncio.to_thread(html_text, html, url)
@@ -120,11 +132,11 @@ async def fetch_linked_pages(urls: list[str], max_pages: int = MAX_LINKED_PAGES,
 
     async def one(url: str) -> dict:
         try:
-            title, text = await fetch_url(url)
+            title, text = await fetch_url(url, pdf_stop_after=max_chars + 1)
         except IngestError as exc:
             return {"url": url, "title": "", "text": "", "error": str(exc)}
         if len(text) > max_chars:
-            text = text[:max_chars] + f"\n\n[Cut at {max_chars:,} of {len(text):,} characters.]"
+            text = text[:max_chars] + f"\n\n[Cut at {max_chars:,} characters. The rest was not read.]"
         return {"url": url, "title": title, "text": text, "error": ""}
 
     return list(await asyncio.gather(*(one(u) for u in urls[:max_pages])))

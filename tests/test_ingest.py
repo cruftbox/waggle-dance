@@ -85,7 +85,7 @@ def test_extract_links_skips_images_duplicates_and_self():
 
 
 async def test_fetch_linked_pages_caps_notes_and_reports_errors(monkeypatch):
-    async def fake_fetch(url):
+    async def fake_fetch(url, **kwargs):
         if "bad" in url:
             raise IngestError("the site returned HTTP 404")
         return "Report", "x" * 50
@@ -94,7 +94,7 @@ async def test_fetch_linked_pages_caps_notes_and_reports_errors(monkeypatch):
     urls = ["https://good.example/1", "https://bad.example/2"] + [f"https://more.example/{i}" for i in range(9)]
     pages = await fetch_linked_pages(urls, max_chars=20)
     assert len(pages) == 5
-    assert pages[0]["text"].startswith("x" * 20) and "[Cut at 20 of 50 characters.]" in pages[0]["text"]
+    assert pages[0]["text"].startswith("x" * 20) and "[Cut at 20 characters. The rest was not read.]" in pages[0]["text"]
     assert pages[1]["error"] == "the site returned HTTP 404"
     block = linked_pages_block(pages)
     assert block.startswith("# Pages linked from the post") and "URL: https://good.example/1" in block
@@ -103,3 +103,26 @@ async def test_fetch_linked_pages_caps_notes_and_reports_errors(monkeypatch):
     assert note.startswith("-# Included 4 linked pages: good.example")
     assert "could not fetch: bad.example (the site returned HTTP 404)" in note
     assert linked_pages_block([]) == "" and linked_pages_note([]) == ""
+
+
+def test_pdf_text_stops_early(monkeypatch):
+    read = []
+
+    class Page:
+        def __init__(self, i):
+            self.i = i
+
+        def extract_text(self):
+            read.append(self.i)
+            return "x" * 100
+
+    class Reader:
+        def __init__(self, _data):
+            self.pages = [Page(i) for i in range(10)]
+
+    monkeypatch.setattr(ingest, "PdfReader", Reader)
+    text = ingest.pdf_text(b"", stop_after=250)
+    assert read == [0, 1, 2] and len(text) >= 250
+    read.clear()
+    ingest.pdf_text(b"")
+    assert len(read) == 10

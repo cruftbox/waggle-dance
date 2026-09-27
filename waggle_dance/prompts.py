@@ -84,9 +84,12 @@ def submission_message(mode: str, topic: str, submission: str, context: str, own
 
 OPENING = {
     "review": (
-        "Review the post above. Give specific edits, ranked from most to least important. For each edit, "
-        "quote the passage you would change, say what to change it to or why, and mark its severity as "
-        "must fix, should fix, or optional. Do not rewrite the whole post unless {owner} asks."
+        "This is a post for a personal weblog, written for general readers, not an academic paper. Review it the "
+        "way an experienced blog editor would. Focus on what matters for this kind of writing: the opening, clarity, "
+        "flow, voice, and whether the argument lands for a general reader. Give at most five edits, most important "
+        "first. Quote the passage and say what to change. Point out factual errors only when something is clearly "
+        "wrong. Do not ask for citations, hedging, or rigor beyond what a blog post needs. Do not rewrite the whole "
+        "post unless {owner} asks."
     ),
     "recommend": (
         "Use web search to propose a shortlist of up to 3 products that meet the need and every constraint above. "
@@ -119,10 +122,10 @@ CONSENSUS = {
         "Be direct and concise."
     ),
     "review": (
-        "You are writing the final edit list for this review. Merge every edit the participants proposed into one "
-        "deduplicated list, ordered by severity (must fix, should fix, optional). For each edit, quote the passage, "
-        "give the change, and note which participants raised it. Drop edits that later discussion rejected, and say "
-        "which ones you dropped and why."
+        "You are writing the final edit list for this review of a personal weblog post, as an experienced blog "
+        "editor would. Merge the edits the participants proposed into one deduplicated list of at most five, most "
+        "important first. For each edit, quote the passage, give the change, and note which participants raised it. "
+        "Drop edits that later discussion rejected, and edits that ask for academic rigor a blog post does not need."
     ),
     "recommend": (
         "You are writing the final recommendation. Use the vote tally from the Moderator. Name the top pick and the "

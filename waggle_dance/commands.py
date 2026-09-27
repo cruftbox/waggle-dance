@@ -30,7 +30,7 @@ Type a message in this channel to start a conversation, or to follow up on the o
 Start a new conversation (closes the open one):
 `/new [topic]` start fresh, optionally with a topic
 `/discuss topic` open discussion, optional `file`
-`/review` critique a post: `url`, `file`, or no input to paste text; optional `context`
+`/review url` critique a post at a link; optional `context`
 `/recommend` product recommendation (opens a form; search is always on)
 These take `models` (for example `claude, gemini`); `/discuss` and `/review` take `search` (`on` or `off`).
 
@@ -154,25 +154,6 @@ def register(bot: "WaggleBot") -> None:
         await respond(interaction, f"Started with {', '.join(names[k] for k in models)}. "
                                    f"Search is {'on' if search else 'off'}.")
 
-    class ReviewModal(discord.ui.Modal, title="Review a post"):
-        post = discord.ui.TextInput(label="Post text", style=discord.TextStyle.paragraph,
-                                    max_length=MODAL_TEXT_LIMIT, required=True)
-        context = discord.ui.TextInput(label="Context (audience, platform, what feedback you want)",
-                                       style=discord.TextStyle.paragraph, max_length=1000, required=False)
-
-        def __init__(self, models: list[str], search: bool, context_default: str | None):
-            super().__init__()
-            self.models, self.search = models, search
-            if context_default:
-                self.context.default = context_default
-
-        async def on_submit(self, interaction: discord.Interaction) -> None:
-            await interaction.response.defer(ephemeral=True, thinking=True)
-            text = str(self.post.value).strip()
-            first_line = text.splitlines()[0] if text else "Review"
-            await begin(interaction, "review", f"Review: {first_line[:80]}", text, str(self.context.value).strip(),
-                        self.models, self.search, text, first_line)
-
     class RecommendModal(discord.ui.Modal, title="What do you need?"):
         need = discord.ui.TextInput(label="What you need", style=discord.TextStyle.paragraph,
                                     max_length=MODAL_TEXT_LIMIT, required=True)
@@ -217,31 +198,24 @@ def register(bot: "WaggleBot") -> None:
         await respond(interaction, "Done. Type a message to start a new conversation.")
 
     @tree.command(name="review", description="Start a review of a blog or social media post")
-    @app_commands.describe(url="Link to the post", file="A .txt, .md, or .pdf file",
-                           context="Audience, platform, or what feedback you want",
+    @app_commands.describe(url="Link to the post", context="Audience, platform, or what feedback you want",
                            models="Models to include, comma-separated (default: all)", search="Web search")
-    async def review(interaction: discord.Interaction, url: str | None = None, file: discord.Attachment | None = None,
-                     context: str | None = None, models: str | None = None,
-                     search: Literal["on", "off"] | None = None):
+    async def review(interaction: discord.Interaction, url: str, context: str | None = None,
+                     models: str | None = None, search: Literal["on", "off"] | None = None):
         if not await ready(interaction) or not await can_start(interaction):
             return
         chosen, error = parse_models(models)
         if error:
             return await respond(interaction, error)
-        use_search = resolve_search("review", search)
-        if not url and not file:
-            return await interaction.response.send_modal(ReviewModal(chosen, use_search, context))
         await interaction.response.defer(ephemeral=True, thinking=True)
+        url = url.strip()
         try:
-            if url:
-                page_title, text = await ingest.fetch_url(url.strip())
-            else:
-                page_title, text = file.filename, ingest.file_text(file.filename, await file.read())
+            page_title, text = await ingest.fetch_url(url)
         except ingest.IngestError as exc:
-            return await respond(interaction, f"Could not read that: {exc}.")
-        label = page_title or (url or file.filename)
+            return await respond(interaction, f"Could not read that page: {exc}.")
+        label = page_title or url
         await begin(interaction, "review", f"Review: {label[:80]}", text, (context or "").strip(), chosen,
-                    use_search, f"{page_title}\n\n{text}", label, source_url=url or file.filename)
+                    resolve_search("review", search), f"{page_title}\n\n{text}", label, source_url=url)
 
     @tree.command(name="recommend", description="Start a product recommendation (opens a form)")
     @app_commands.describe(models="Models to include, comma-separated (default: all)")

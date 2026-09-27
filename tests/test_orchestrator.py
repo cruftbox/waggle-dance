@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from conftest import RecordingProvider
-from waggle_dance.orchestrator import Busy, Orchestrator, Paused
+from waggle_dance.orchestrator import Busy, Orchestrator
 
 MODELS = ["claude", "chatgpt", "gemini", "muse"]
 
@@ -123,7 +123,7 @@ async def test_session_save_and_restore(orch, cfg, providers, store, out, tmp_pa
     assert len(r.entries) == len(s.entries) + 5
 
 
-async def test_run_is_exclusive_and_pause_cancels(orch, out):
+async def test_run_is_exclusive(orch, out):
     s = new(orch)
     gate = asyncio.Event()
 
@@ -136,28 +136,10 @@ async def test_run_is_exclusive_and_pause_cancels(orch, out):
     assert orch.is_busy(1)
     with pytest.raises(Busy):
         await orch.run(1, slow)
-    assert orch.pause(1) is True
-    assert await task is None
-    with pytest.raises(Paused):
-        await orch.run(1, slow)
-    orch.resume(1)
     gate.set()
+    assert await task == "done"
+    assert not orch.is_busy(1)
     assert await orch.run(1, slow) == "done"
-
-
-async def test_cancelled_turn_adds_nothing_to_the_transcript(orch, providers, cfg, out):
-    class Hang(RecordingProvider):
-        async def generate(self, *a, **k):
-            await asyncio.Event().wait()
-
-    providers["claude"] = Hang("claude", cfg["models"]["claude"])
-    orch.providers = providers
-    s = new(orch, models=["claude"])
-    task = asyncio.create_task(orch.run(1, lambda: orch.opening(s, out)))
-    await asyncio.sleep(0.01)
-    orch.pause(1)
-    assert await task is None
-    assert s.entries == [] and out.posts == []
 
 
 async def test_spend_warning(orch, cfg, out):

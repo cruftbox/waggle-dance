@@ -11,7 +11,7 @@ from discord import app_commands
 from . import ingest
 from .config import ConfigError
 from .discord_io import text_file
-from .orchestrator import Busy, Paused, Session
+from .orchestrator import Busy, Session
 
 if TYPE_CHECKING:
     from .bot import WaggleBot
@@ -32,7 +32,6 @@ In the open conversation:
 `/consensus [summarizer]` one model writes the outcome
 `/cost` estimated spend so far
 `/export` transcript as Markdown and JSON
-`/pause` and `/resume` stop the current command and block new ones, then allow them again
 `/close [summarizer]` end the conversation: one model sums up, then the transcript is posted
 `/close mode:quiet` just end it, posting nothing
 
@@ -78,16 +77,13 @@ def register(bot: "WaggleBot") -> None:
         return s
 
     async def free(interaction: discord.Interaction, s: Session) -> bool:
-        if orch.is_paused(s.session_id):
-            await respond(interaction, "The conversation is paused. Use /resume first.")
-            return False
         if orch.is_busy(s.session_id):
-            await respond(interaction, "Busy with another command. Use /pause to stop it.")
+            await respond(interaction, "Busy with another command. Wait for it to finish.")
             return False
         return True
 
     async def can_start(interaction: discord.Interaction) -> bool:
-        """A new conversation closes the open one, which must not be busy or paused."""
+        """A new conversation closes the open one, which must not be busy."""
         s = orch.current()
         return s is None or await free(interaction, s)
 
@@ -113,8 +109,8 @@ def register(bot: "WaggleBot") -> None:
         try:
             await bot.start_session(interaction.id, mode, topic, submission, context, models, True, title_text,
                                     fallback, source_url=source_url, note=note)
-        except (Busy, Paused):
-            return await respond(interaction, "The open conversation is busy or paused. Use /pause or /resume.")
+        except Busy:
+            return await respond(interaction, "The open conversation is running a command. Wait for it to finish.")
         names = orch.names()
         await respond(interaction, f"Started with {', '.join(names[k] for k in models)}.")
 
@@ -132,8 +128,8 @@ def register(bot: "WaggleBot") -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
             await bot.close_session(s, mode="quiet", announce=False)
-        except (Busy, Paused):
-            return await respond(interaction, "The open conversation is busy or paused. Use /pause or /resume.")
+        except Busy:
+            return await respond(interaction, "The open conversation is running a command. Wait for it to finish.")
         await bot.output().post_status("-# Closed the previous conversation. Its export is saved. "
                                        "The next message starts a new one.")
         await respond(interaction, "Done. Type a message to start a new conversation.")
@@ -211,21 +207,6 @@ def register(bot: "WaggleBot") -> None:
             files=[text_file(orch.export_markdown(s), f"{base}.md"), text_file(orch.export_json(s), f"{base}.json")],
         )
 
-    @tree.command(name="pause", description="Stop the running command and block new ones")
-    async def pause(interaction: discord.Interaction):
-        if not (s := await session_ready(interaction, need_free=False)):
-            return
-        was_running = orch.pause(s.session_id)
-        note = " The running command was stopped; its unfinished replies were discarded." if was_running else ""
-        await respond(interaction, f"Paused.{note} Use /resume to continue.", ephemeral=False)
-
-    @tree.command(name="resume", description="Allow commands again after /pause")
-    async def resume(interaction: discord.Interaction):
-        if not (s := await session_ready(interaction, need_free=False)):
-            return
-        orch.resume(s.session_id)
-        await respond(interaction, "Resumed.", ephemeral=False)
-
     @tree.command(name="close", description="End the conversation")
     @app_commands.describe(mode="summary: a model sums up and the transcript is posted. quiet: close, post nothing",
                            summarizer="Model to write the summary (default: rotates)")
@@ -239,8 +220,8 @@ def register(bot: "WaggleBot") -> None:
             # the only reply is a private note that removes itself.
             try:
                 await bot.close_session(s, "quiet", announce=False)
-            except (Busy, Paused):
-                return await respond(interaction, "Could not close: the conversation is busy or paused.")
+            except Busy:
+                return await respond(interaction, "Could not close: another command is running.")
             return await interaction.response.send_message("Closed.", ephemeral=True, delete_after=5)
         key = model_key(s, summarizer) if summarizer else None
         if summarizer and not key:
@@ -250,9 +231,8 @@ def register(bot: "WaggleBot") -> None:
         async def run_close():
             try:
                 await bot.close_session(s, mode, key)
-            except (Busy, Paused):
-                await bot.output().post_status("Could not close: another command is running or the "
-                                               "conversation is paused.")
+            except Busy:
+                await bot.output().post_status("Could not close: another command is running.")
             except Exception as exc:
                 log.exception("Close failed for session %s", s.session_id)
                 await bot.output().post_status(f"Close failed: {type(exc).__name__}: {str(exc)[:300]}")

@@ -11,7 +11,7 @@ from waggle_dance.discord_io import ChannelOutput, reply_messages, sources_line,
 from waggle_dance.voting import borda
 
 EXPECTED = {
-    "new", "review", "consensus", "vote", "disagree", "cost", "export", "pause", "resume", "close",
+    "new", "review", "consensus", "vote", "disagree", "cost", "export", "close",
     "models", "instructions", "reload", "help",
 }
 CHANNEL = 2
@@ -199,9 +199,11 @@ async def test_follow_up_while_busy_is_not_recorded(orch):
     await bot.on_message(FakeMessage("Topic"))
     await settle(bot)
     s = orch.current()
-    orch.pause(s.session_id)
+    lock = orch._locks.setdefault(s.session_id, asyncio.Lock())
+    await lock.acquire()
     late = FakeMessage("one more thing")
     await bot.on_message(late)
+    lock.release()
     assert late.reactions == ["\N{HOURGLASS WITH FLOWING SAND}"]
     assert all(e.text != "one more thing" for e in s.entries)
 
@@ -250,7 +252,7 @@ async def test_close_attaches_the_export(orch):
     await bot.on_message(FakeMessage("Topic"))
     await settle(bot)
     s = orch.current()
-    assert await bot.close_session(s, mode="quiet")
+    await bot.close_session(s, mode="quiet")
     assert orch.current() is None
     record, _ = bot.channel.sent[-2]
     assert record.startswith("Conversation closed:")
@@ -272,7 +274,7 @@ async def test_quiet_close_posts_nothing(orch):
     await settle(bot)
     s = orch.current()
     before = list(bot.channel.sent)
-    assert await bot.close_session(s, mode="quiet", announce=False)
+    await bot.close_session(s, mode="quiet", announce=False)
     assert bot.channel.sent == before
     assert orch.current() is None
     assert orch.store.get_session(s.session_id)["status"] == "closed"

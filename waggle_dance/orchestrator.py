@@ -31,10 +31,6 @@ class Busy(Exception):
     """Another command is running in this session."""
 
 
-class Paused(Exception):
-    """The session is paused."""
-
-
 class Output(Protocol):
     def typing(self) -> AbstractAsyncContextManager: ...
     async def post_model(self, key: str, text: str, citations: list[dict], footer: str) -> list[int]: ...
@@ -86,8 +82,6 @@ class Orchestrator:
         self.exports_dir = Path(exports_dir)
         self.sessions: dict[int, Session] = {}
         self._locks: dict[int, asyncio.Lock] = {}
-        self._tasks: dict[int, asyncio.Task] = {}
-        self._paused: set[int] = set()
 
     # Configuration
 
@@ -175,40 +169,13 @@ class Orchestrator:
         lock = self._locks.get(session_id)
         return bool(lock and lock.locked())
 
-    def is_paused(self, session_id: int) -> bool:
-        return session_id in self._paused
-
     async def run(self, session_id: int, work: Callable[[], Awaitable]):
-        """Run a command's work exclusively. Returns None if /pause cancelled it."""
-        if session_id in self._paused:
-            raise Paused()
+        """Run a command's work exclusively. Raises Busy if another command is running."""
         lock = self._locks.setdefault(session_id, asyncio.Lock())
         if lock.locked():
             raise Busy()
         async with lock:
-            task = asyncio.create_task(work())
-            self._tasks[session_id] = task
-            try:
-                return await task
-            except asyncio.CancelledError:
-                if task.cancelled() and session_id in self._paused:
-                    return None
-                task.cancel()
-                raise
-            finally:
-                self._tasks.pop(session_id, None)
-
-    def pause(self, session_id: int) -> bool:
-        """Block new commands and cancel the running one. Returns True if one was running."""
-        self._paused.add(session_id)
-        task = self._tasks.get(session_id)
-        if task and not task.done():
-            task.cancel()
-            return True
-        return False
-
-    def resume(self, session_id: int) -> None:
-        self._paused.discard(session_id)
+            return await work()
 
     # One model turn
 
@@ -436,7 +403,6 @@ class Orchestrator:
         md_path, json_path = self.write_exports(s)
         self.sessions.pop(s.session_id, None)
         self._locks.pop(s.session_id, None)
-        self._paused.discard(s.session_id)
         return md_path, json_path, record_text
 
     # Exports

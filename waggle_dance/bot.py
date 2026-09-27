@@ -18,7 +18,7 @@ from discord import app_commands
 from . import commands, ingest
 from .config import Settings
 from .discord_io import MESSAGE_LIMIT, NO_MENTIONS, ChannelOutput, get_webhook, text_file
-from .orchestrator import Busy, Orchestrator, Paused, Session
+from .orchestrator import Busy, Orchestrator, Session
 
 log = logging.getLogger(__name__)
 
@@ -86,11 +86,9 @@ class WaggleBot(discord.Client):
 
         async def runner():
             try:
-                result = await self.orch.run(s.session_id, lambda: work(out))
-                if result is None and self.orch.is_paused(s.session_id):
-                    log.info("Command in session %s stopped by /pause", s.session_id)
-            except (Busy, Paused):
-                await out.post_status("Another command started first. Use /pause to stop it.")
+                await self.orch.run(s.session_id, lambda: work(out))
+            except Busy:
+                await out.post_status("Another command started first. Wait for it to finish.")
             except Exception as exc:
                 log.exception("Command failed in session %s", s.session_id)
                 await out.post_status(f"Something went wrong: {type(exc).__name__}: {str(exc)[:300]}")
@@ -106,8 +104,8 @@ class WaggleBot(discord.Client):
 
         post_submission is False when the request is the owner's own channel
         message, which is already visible. note is a small-text line posted
-        after the request. Raises Busy or Paused if the open conversation
-        cannot be closed.
+        after the request. Raises Busy if the open conversation
+        is running a command.
         """
         current = self.orch.current()
         if current is not None:
@@ -153,22 +151,17 @@ class WaggleBot(discord.Client):
             await self.channel.send(text, **kwargs)
 
     async def close_session(self, s: Session, mode: str, summarizer: str | None = None,
-                            announce: bool = True) -> bool:
-        """Close a conversation under its session lock. Raises Busy or Paused.
+                            announce: bool = True) -> None:
+        """Close a conversation under its session lock. Raises Busy.
 
-        With announce, posts the closing record and attaches the Markdown
-        export. Returns False if /pause stopped it.
+        With announce, posts the closing record and attaches the Markdown export.
         """
         out = self.output()
-        result = await self.orch.run(
+        md_path, _, _ = await self.orch.run(
             s.session_id, lambda: self.orch.close(s, out, mode=mode, summarizer=summarizer, announce=announce)
         )
-        if result is None:
-            return False
         if announce:
-            md_path = result[0]
             await self.channel.send(file=discord.File(md_path, filename=md_path.name))
-        return True
 
     # Owner messages in the channel
 
@@ -183,9 +176,9 @@ class WaggleBot(discord.Client):
             return
         if not message.content.strip():
             return
-        # Every model replies to a follow-up in turn. While a command is running
-        # or the conversation is paused, it is not recorded.
-        if self.orch.is_busy(s.session_id) or self.orch.is_paused(s.session_id):
+        # Every model replies to a follow-up in turn. While a command is running,
+        # it is not recorded.
+        if self.orch.is_busy(s.session_id):
             await message.add_reaction(WAIT)
             return
         self.orch.add_owner_message(s, message.content.strip())
@@ -239,7 +232,7 @@ class WaggleBot(discord.Client):
             log.info("Auto-closing idle conversation %s", s.session_id)
             try:
                 await self.close_session(s, mode="quiet", announce=False)
-            except (Busy, Paused):
+            except Busy:
                 continue
             hours = f"{self.settings.auto_close_hours:g}"
             await self.output().post_status(

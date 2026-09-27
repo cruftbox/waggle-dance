@@ -108,7 +108,7 @@ class Orchestrator:
             others=[names[m] for m in models if m != key],
             owner_name=self.owner_name,
             max_chars=self.cfg["max_reply_chars"],
-            search=session.search if session else False,
+            search=session.search if session else True,
             today=today_text(),
         )
         return prompts.system_prompt(

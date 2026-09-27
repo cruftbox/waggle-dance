@@ -108,10 +108,10 @@ def register(bot: "WaggleBot") -> None:
 
     async def begin(interaction: discord.Interaction, mode: str, topic: str, submission: str, context: str,
                     title_text: str, fallback: str, source_url: str | None = None, note: str = "") -> None:
-        """Start a conversation with every enabled model. The interaction must already be deferred."""
+        """Start a conversation with every enabled model, search on. The interaction must already be deferred."""
         models = orch.enabled_keys()
         try:
-            await bot.start_session(interaction.id, mode, topic, submission, context, models, False, title_text,
+            await bot.start_session(interaction.id, mode, topic, submission, context, models, True, title_text,
                                     fallback, source_url=source_url, note=note)
         except (Busy, Paused):
             return await respond(interaction, "The open conversation is busy or paused. Use /pause or /resume.")
@@ -283,7 +283,7 @@ def register(bot: "WaggleBot") -> None:
             return await respond(interaction, f"Unknown model: {model}.")
         names = orch.names()
         text = "\n\n".join(f"===== {names[k]} =====\n\n{orch.system_for(k, s)}" for k in keys)
-        where = "the open conversation" if s else "a new conversation with search off"
+        where = "the open conversation" if s else "a new conversation"
         if len(text) <= 1900:
             await respond(interaction, f"Effective system prompt for {where}:\n```\n{text}\n```")
         else:

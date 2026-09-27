@@ -210,7 +210,7 @@ class WaggleBot(discord.Client):
         submission = "\n\n".join(material) if material else topic
         await message.add_reaction(SEEN)
         try:
-            await self.start_session(message.id, "discuss", topic, submission, "", self.orch.enabled_keys(), False,
+            await self.start_session(message.id, "discuss", topic, submission, "", self.orch.enabled_keys(), True,
                                      topic if submission == topic else f"{topic}\n\n{submission}", topic,
                                      post_submission=False)
         except Exception as exc:

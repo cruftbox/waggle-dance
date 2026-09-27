@@ -169,7 +169,7 @@ async def test_first_message_starts_a_conversation_in_the_channel(orch):
     await settle(bot)
     assert msg.reactions == [EYES]
     s = orch.current()
-    assert s.session_id == msg.id and s.mode == "discuss" and s.search is False
+    assert s.session_id == msg.id and s.mode == "discuss" and s.search is True
     assert s.topic == "Is tea better than coffee?" and s.models == orch.enabled_keys()
     assert s.title == "Mock discussion title"
     # The question is the owner's own message, so the bot does not repost it.

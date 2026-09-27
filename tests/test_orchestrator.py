@@ -48,14 +48,6 @@ async def test_failed_provider_does_not_stop_the_session(orch, providers, cfg, o
     assert all(e.speaker != "chatgpt" for e in s.entries)
 
 
-async def test_ask_has_only_one_model_answer(orch, providers, out):
-    s = new(orch)
-    orch.add_owner_message(s, "why tea?")
-    await orch.ask(s, "gemini", out)
-    assert [p[0] for p in out.posts] == ["gemini"]
-    assert providers["claude"].calls == []
-
-
 async def test_vote_tallies_in_code_and_drops_bad_ballot(orch, providers, cfg, out):
     providers["muse"] = RecordingProvider("muse", cfg["models"]["muse"], replies=["not json", "still not json"])
     orch.providers = providers

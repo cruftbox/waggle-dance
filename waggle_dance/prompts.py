@@ -79,8 +79,6 @@ FOLLOW_UP = (
     "above, respond to their points as well instead of repeating them."
 )
 
-ASK = "{owner} asked you a question in the latest message. Answer it directly."
-
 DISAGREE = (
     "List only the points where the participants disagree. For each point, say who holds which position, "
     "attributed by name. Skip everything they agree on. If there are no real disagreements, say so in one sentence."

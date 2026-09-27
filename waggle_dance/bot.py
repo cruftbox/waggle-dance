@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable
 
@@ -184,18 +183,14 @@ class WaggleBot(discord.Client):
             return
         if not message.content.strip():
             return
-        # A follow-up gets replies: from the named model, or from every model in turn.
-        # While a command is running or the conversation is paused, it is not recorded.
+        # Every model replies to a follow-up in turn. While a command is running
+        # or the conversation is paused, it is not recorded.
         if self.orch.is_busy(s.session_id) or self.orch.is_paused(s.session_id):
             await message.add_reaction(WAIT)
             return
-        target = self._addressed_model(s, message.content)
         self.orch.add_owner_message(s, message.content.strip())
         await message.add_reaction(SEEN)
-        if target:
-            self.run_command(s, lambda out: self.orch.ask(s, target, out))
-        else:
-            self.run_command(s, lambda out: self.orch.follow_up(s, out))
+        self.run_command(s, lambda out: self.orch.follow_up(s, out))
 
     async def _discuss_from_message(self, message: discord.Message) -> None:
         """With no open conversation, a plain message starts one."""
@@ -222,18 +217,6 @@ class WaggleBot(discord.Client):
             log.exception("Could not start a conversation from message %s", message.id)
             await message.reply(f"Could not start a discussion: {type(exc).__name__}: {str(exc)[:300]}",
                                 mention_author=False)
-
-    def _addressed_model(self, s: Session, text: str) -> str | None:
-        """Return the model key if text starts with a model name and a colon or comma."""
-        m = re.match(r"^\s*([A-Za-z][\w .-]{0,30}?)\s*[:,]", text)
-        if not m:
-            return None
-        said = m.group(1).strip().lower()
-        names = self.orch.names()
-        for key in s.models:
-            if said in (key.lower(), names[key].lower()):
-                return key
-        return None
 
     # Auto-close
 

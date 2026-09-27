@@ -1,4 +1,4 @@
-"""Session flow: opening, follow-ups, ask, disagree, vote, consensus, close.
+"""Session flow: opening, follow-ups, disagree, vote, consensus, close.
 
 Nothing here talks to Discord directly. Commands post through an Output
 object, which the bot implements with webhooks and tests implement with lists.
@@ -302,13 +302,6 @@ class Orchestrator:
         for key in rotate(s.models, max(owner_messages - 1, 0)):
             async with out.typing():
                 await self._turn(s, key, *self.view(s, key, instruction), "reply", out)
-
-    async def ask(self, s: Session, key: str, out: Output) -> None:
-        """One model answers the owner's latest message."""
-        await self.warn_if_expensive(s, {key: 1}, out)
-        instruction = prompts.fill(prompts.ASK, owner=self.owner_name)
-        async with out.typing():
-            await self._turn(s, key, *self.view(s, key, instruction), "ask", out)
 
     def _rotating(self, s: Session, counter: str) -> str:
         return s.models[self.store.next_counter(counter) % len(s.models)]

@@ -162,16 +162,6 @@ async def test_errors_and_status_come_from_the_bot_account(cfg):
 # Messages in the channel
 
 
-def test_addressed_messages_route_to_a_model(orch):
-    bot = make_bot(orch)
-    s = orch.create_session(5, "discuss", "t", "t", "t", "", ["claude", "muse"], False)
-    assert bot._addressed_model(s, "claude: why did you rule out X?") == "claude"
-    assert bot._addressed_model(s, "Muse Spark, what do you think?") == "muse"
-    assert bot._addressed_model(s, "gemini: you are not in this conversation") is None
-    assert bot._addressed_model(s, "Note: this is just a remark") is None
-    assert bot._addressed_model(s, "no prefix here") is None
-
-
 async def test_first_message_starts_a_conversation_in_the_channel(orch):
     bot = make_bot(orch)
     msg = FakeMessage("Is tea better than coffee?")
@@ -202,11 +192,6 @@ async def test_later_messages_are_follow_ups(orch):
     assert len(bot.webhook.sent) == 8
     assert [e.phase for e in s.entries[4:]] == ["owner", "reply", "reply", "reply", "reply"]
     assert s.entries[4].text == "What about green tea?"
-
-    ask = FakeMessage("claude: and oolong?")
-    await bot.on_message(ask)
-    await settle(bot)
-    assert bot.webhook.sent[-1]["username"] == "Claude" and len(bot.webhook.sent) == 9
 
 
 async def test_follow_up_while_busy_is_not_recorded(orch):

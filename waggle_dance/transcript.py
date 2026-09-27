@@ -19,7 +19,7 @@ class Entry:
     seq: int
     speaker: str  # model key, OWNER, or MODERATOR
     kind: str  # "owner", "model", or "system"
-    phase: str  # opening, reply, ask, consensus, disagree, vote, owner
+    phase: str  # opening, reply, consensus, disagree, vote, owner
     round: int  # unused since /debate was removed; kept for stored data
     text: str
     citations: list[dict] = field(default_factory=list)

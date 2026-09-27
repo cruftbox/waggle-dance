@@ -28,6 +28,7 @@ def discussion_rules(
         f"Keep every reply under {max_chars} characters, not counting URLs.",
         "Do not restate what others said. Respond to it.",
         "Agree only where you actually agree. Say so directly when you disagree, and why.",
+        "Base your answers on real-world constraints, not theoretical possibilities.",
         "Write plain text or light Markdown. Do not add a heading with your name; the thread shows who is speaking.",
     ]
     if search:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import re
 
 import httpx
 import trafilatura
@@ -37,8 +38,9 @@ def pdf_text(data: bytes) -> str:
 
 
 def html_text(html: str, url: str | None = None) -> tuple[str, str]:
-    """Return (title, article text) from an HTML page."""
-    text = trafilatura.extract(html, url=url, include_comments=False, include_tables=True)
+    """Return (title, article text) from an HTML page, as Markdown so links keep their URLs."""
+    text = trafilatura.extract(html, url=url, include_comments=False, include_tables=True, include_links=True,
+                               output_format="markdown")
     meta = trafilatura.extract_metadata(html)
     title = (meta.title if meta and meta.title else "") or ""
     if not text:
@@ -89,6 +91,73 @@ def file_text(filename: str, data: bytes) -> str:
 
 def pasted_text(text: str) -> str:
     return _check_length(text)
+
+
+# Pages linked from a submitted post, fetched so the models can read what the post cites.
+
+MAX_LINKED_PAGES = 5
+MAX_LINKED_CHARS = 30_000
+LINK_RE = re.compile(r"(!?)\[([^\]]*)\]\((https?://[^)\s]+)\)")
+SKIP_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".mp4", ".mp3", ".zip")
+
+
+def extract_links(markdown: str, page_url: str | None = None) -> list[str]:
+    """URLs linked in Markdown text, in order, without images, duplicates, or the page itself."""
+    own = (page_url or "").split("#")[0].rstrip("/")
+    out: list[str] = []
+    for is_image, _label, url in LINK_RE.findall(markdown):
+        url = url.split("#")[0]
+        path = url.lower().split("?")[0]
+        if is_image or path.endswith(SKIP_EXTENSIONS) or url.rstrip("/") == own or url in out:
+            continue
+        out.append(url)
+    return out
+
+
+async def fetch_linked_pages(urls: list[str], max_pages: int = MAX_LINKED_PAGES,
+                             max_chars: int = MAX_LINKED_CHARS) -> list[dict]:
+    """Fetch linked pages in parallel. Each result has url, title, text, and error."""
+
+    async def one(url: str) -> dict:
+        try:
+            title, text = await fetch_url(url)
+        except IngestError as exc:
+            return {"url": url, "title": "", "text": "", "error": str(exc)}
+        if len(text) > max_chars:
+            text = text[:max_chars] + f"\n\n[Cut at {max_chars:,} of {len(text):,} characters.]"
+        return {"url": url, "title": title, "text": text, "error": ""}
+
+    return list(await asyncio.gather(*(one(u) for u in urls[:max_pages])))
+
+
+def linked_pages_block(pages: list[dict]) -> str:
+    """Reference section appended after a post, kept apart from the post itself."""
+    fetched = [p for p in pages if not p["error"]]
+    if not fetched:
+        return ""
+    parts = ["# Pages linked from the post\n\nReference material fetched from links in the post. "
+             "It is not part of the post."]
+    for p in fetched:
+        parts.append(f"## {p['title'] or p['url']}\n\nURL: {p['url']}\n\n{p['text']}")
+    return "\n\n".join(parts)
+
+
+def linked_pages_note(pages: list[dict]) -> str:
+    """One small-text line saying which linked pages were included or failed."""
+    if not pages:
+        return ""
+    ok = [_host(p["url"]) for p in pages if not p["error"]]
+    failed = [f"{_host(p['url'])} ({p['error']})" for p in pages if p["error"]]
+    parts = []
+    if ok:
+        parts.append(f"Included {len(ok)} linked page{'s' if len(ok) != 1 else ''}: {', '.join(ok)}")
+    if failed:
+        parts.append(f"could not fetch: {', '.join(failed)}")
+    return "-# " + "; ".join(parts)
+
+
+def _host(url: str) -> str:
+    return url.split("//", 1)[-1].split("/", 1)[0]
 
 
 # Gemini returns citation links that redirect through Google. Resolve them to

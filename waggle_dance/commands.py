@@ -143,11 +143,11 @@ def register(bot: "WaggleBot") -> None:
 
     async def begin(interaction: discord.Interaction, mode: str, topic: str, submission: str, context: str,
                     models: list[str], search: bool, title_text: str, fallback: str,
-                    source_url: str | None = None) -> None:
+                    source_url: str | None = None, note: str = "") -> None:
         """Start a conversation from a slash command. The interaction must already be deferred."""
         try:
             await bot.start_session(interaction.id, mode, topic, submission, context, models, search, title_text,
-                                    fallback, source_url=source_url)
+                                    fallback, source_url=source_url, note=note)
         except (Busy, Paused):
             return await respond(interaction, "The open conversation is busy or paused. Use /pause or /resume.")
         names = orch.names()
@@ -213,9 +213,14 @@ def register(bot: "WaggleBot") -> None:
             page_title, text = await ingest.fetch_url(url)
         except ingest.IngestError as exc:
             return await respond(interaction, f"Could not read that page: {exc}.")
+        # Fetch what the post links to, so the models can read its sources.
+        pages = await ingest.fetch_linked_pages(ingest.extract_links(text, url))
+        block = ingest.linked_pages_block(pages)
+        submission = f"{text}\n\n{block}" if block else text
         label = page_title or url
-        await begin(interaction, "review", f"Review: {label[:80]}", text, (context or "").strip(), chosen,
-                    resolve_search("review", search), f"{page_title}\n\n{text}", label, source_url=url)
+        await begin(interaction, "review", f"Review: {label[:80]}", submission, (context or "").strip(), chosen,
+                    resolve_search("review", search), f"{page_title}\n\n{text}", label, source_url=url,
+                    note=ingest.linked_pages_note(pages))
 
     @tree.command(name="recommend", description="Start a product recommendation (opens a form)")
     @app_commands.describe(models="Models to include, comma-separated (default: all)")

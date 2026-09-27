@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Awaitable, Callable, Protocol
 
 from . import costs, ingest, prompts
-from .config import enabled_models, model_timeout
+from .config import enabled_models, model_timeout, today_text
 from .providers.base import Provider, ProviderError, Reply
 from .store import Store
 from .transcript import MODERATOR, OWNER, Entry, apply_style_filters, build_view, now_iso, rotate
@@ -111,6 +111,7 @@ class Orchestrator:
             max_chars=self.cfg["max_reply_chars"],
             search=session.search if session else False,
             role=session.roles.get(key) if session else None,
+            today=today_text(),
         )
         return prompts.system_prompt(
             self.instructions.get("shared", ""), self.instructions.get("models", {}).get(key, ""), rules

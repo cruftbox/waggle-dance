@@ -27,6 +27,7 @@ def discussion_rules(
     max_chars: int,
     search: bool,
     role: str | None,
+    today: str = "",
 ) -> str:
     if others:
         who = (
@@ -35,8 +36,10 @@ def discussion_rules(
         )
     else:
         who = f"You are {name}, an AI model in a discussion in a Discord thread."
-    lines = [
-        who,
+    lines = [who]
+    if today:
+        lines.append(f"Today's date is {today}. Events before today may postdate your training data.")
+    lines += [
         f"The human running the discussion is {owner_name}. Their messages are labeled [{owner_name}]. "
         "Messages labeled [Moderator] come from the bot that runs the discussion.",
         "Other participants' messages are labeled with their names. Your own earlier replies appear as your turns.",

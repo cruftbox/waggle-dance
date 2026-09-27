@@ -7,7 +7,9 @@ import os
 import re
 import shutil
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 
@@ -160,6 +162,18 @@ def load_instructions() -> dict:
         for p in sorted(MODEL_INSTRUCTIONS_DIR.glob("*.md")):
             models[p.stem] = p.read_text(encoding="utf-8")
     return {"shared": shared, "models": models}
+
+
+def today_text(now: datetime | None = None) -> str:
+    """Today's date in the TZ time zone (UTC if unset or unknown), like "Saturday, September 26, 2026"."""
+    name = os.environ.get("TZ", "").strip()
+    try:
+        tz = ZoneInfo(name) if name else timezone.utc
+    except (ZoneInfoNotFoundError, ValueError):
+        log.warning("Unknown TZ %r; using UTC", name)
+        tz = timezone.utc
+    d = (now or datetime.now(timezone.utc)).astimezone(tz)
+    return f"{d:%A}, {d:%B} {d.day}, {d.year}"
 
 
 def enabled_models(cfg: dict) -> dict[str, dict]:

@@ -102,12 +102,13 @@ class WaggleBot(discord.Client):
 
     async def start_session(self, session_id: int, mode: str, topic: str, submission: str, context: str,
                             models: list[str], search: bool, title_text: str, fallback: str,
-                            source_url: str | None = None, post_submission: bool = True) -> Session:
+                            source_url: str | None = None, post_submission: bool = True, note: str = "") -> Session:
         """Close any open conversation, post the request, and start the opening round.
 
         post_submission is False when the request is the owner's own channel
-        message, which is already visible. Raises Busy or Paused if the open
-        conversation cannot be closed.
+        message, which is already visible. note is a small-text line posted
+        after the request. Raises Busy or Paused if the open conversation
+        cannot be closed.
         """
         current = self.orch.current()
         if current is not None:
@@ -115,6 +116,8 @@ class WaggleBot(discord.Client):
             await self.output().post_status("-# Closed the previous conversation. Its export is saved.")
         if post_submission:
             await self._post_submission(mode, topic, submission, context, source_url)
+        if note:
+            await self.output().post_status(note)
         s = self.orch.create_session(session_id, mode, topic, fallback[:100] or "Untitled", submission, context,
                                      models, search)
         self.run_command(s, lambda out: self.orch.opening(s, out))

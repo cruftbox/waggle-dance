@@ -47,3 +47,24 @@ def test_style_filters_apply_in_order():
     filters = [{"pattern": r"\s*\u2014\s*", "replace": ", "}, {"pattern": "colour", "replace": "color"}]
     assert apply_style_filters("A \u2014 B colour", filters) == "A, B color"
     assert apply_style_filters("unchanged", []) == "unchanged"
+
+
+def test_today_text_uses_tz(monkeypatch):
+    from datetime import datetime, timezone
+
+    from waggle_dance.config import today_text
+
+    moment = datetime(2026, 9, 27, 3, 0, tzinfo=timezone.utc)
+    monkeypatch.setenv("TZ", "America/Los_Angeles")
+    assert today_text(moment) == "Saturday, September 26, 2026"
+    monkeypatch.delenv("TZ")
+    assert today_text(moment) == "Sunday, September 27, 2026"
+    monkeypatch.setenv("TZ", "Not/AZone")
+    assert today_text(moment) == "Sunday, September 27, 2026"
+
+
+def test_rules_state_the_date():
+    from waggle_dance.prompts import discussion_rules
+
+    rules = discussion_rules("Claude", ["Gemini"], "Michael", 1000, False, None, today="Sunday, September 27, 2026")
+    assert "Today's date is Sunday, September 27, 2026." in rules

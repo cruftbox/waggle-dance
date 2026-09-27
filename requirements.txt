@@ -7,3 +7,4 @@ trafilatura>=2.2.0,<3
 pypdf>=6.19.0,<7
 PyYAML>=6.0.3,<7
 python-dotenv>=1.2.3,<2
+tzdata>=2026.4

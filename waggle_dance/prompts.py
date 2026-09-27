@@ -72,8 +72,6 @@ def submission_message(mode: str, topic: str, submission: str, context: str, own
         head = "# Post to review\n\n"
         tail = f"\n\n# Context from {owner}\n\n{context}" if context else ""
         return head + submission + tail
-    if mode == "recommend":
-        return "# What is needed\n\n" + submission + ("\n\n# Constraints\n\n" + context if context else "")
     body = "# Topic\n\n" + topic
     if submission and submission != topic:
         body += "\n\n# Attached material\n\n" + submission
@@ -90,11 +88,6 @@ OPENING = {
         "first. Quote the passage and say what to change. Point out factual errors only when something is clearly "
         "wrong. Do not ask for citations, hedging, or rigor beyond what a blog post needs. Do not rewrite the whole "
         "post unless {owner} asks."
-    ),
-    "recommend": (
-        "Use web search to propose a shortlist of up to 3 products that meet the need and every constraint above. "
-        "For each product give the name, the current price, a one-line reason, and a source URL for the price or "
-        "product page. If you cannot find a source for a product, write NO SOURCE in place of the URL."
     ),
     "discuss": (
         "Give your initial thoughts on the topic above. Be substantive and take a clear position where appropriate."
@@ -127,15 +120,9 @@ CONSENSUS = {
         "important first. For each edit, quote the passage, give the change, and note which participants raised it. "
         "Drop edits that later discussion rejected, and edits that ask for academic rigor a blog post does not need."
     ),
-    "recommend": (
-        "You are writing the final recommendation. Use the vote tally from the Moderator. Name the top pick and the "
-        "runners-up, each with price and source URL, and note where the participants disagreed. If a product has no "
-        "source, say so."
-    ),
 }
 
 VOTE_EXTRACT = {
-    "recommend": "the products proposed in this discussion",
     "discuss": "the distinct positions or options proposed in this discussion",
     "review": "the edits proposed in this discussion, each as a short label that names the passage and the change",
 }

@@ -20,8 +20,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-SEARCH_DEFAULT = {"review": False, "recommend": True, "discuss": False}
-MODAL_TEXT_LIMIT = 4000
+SEARCH_DEFAULT = {"review": False, "discuss": False}
 
 HELP = """**waggle-dance**
 
@@ -31,8 +30,7 @@ Start a new conversation (closes the open one):
 `/new [topic]` start fresh, optionally with a topic
 `/discuss topic` open discussion, optional `file`
 `/review url` critique a post at a link; optional `context`
-`/recommend` product recommendation (opens a form; search is always on)
-These take `models` (for example `claude, gemini`); `/discuss` and `/review` take `search` (`on` or `off`).
+Both take optional `models` (for example `claude, gemini`) and `search` (`on` or `off`).
 
 In the open conversation:
 `/ask model question` one model answers
@@ -154,29 +152,6 @@ def register(bot: "WaggleBot") -> None:
         await respond(interaction, f"Started with {', '.join(names[k] for k in models)}. "
                                    f"Search is {'on' if search else 'off'}.")
 
-    class RecommendModal(discord.ui.Modal, title="What do you need?"):
-        need = discord.ui.TextInput(label="What you need", style=discord.TextStyle.paragraph,
-                                    max_length=MODAL_TEXT_LIMIT, required=True)
-        budget = discord.ui.TextInput(label="Budget", max_length=200, required=False)
-        must = discord.ui.TextInput(label="Must-haves", style=discord.TextStyle.paragraph, max_length=1000,
-                                    required=False)
-        breakers = discord.ui.TextInput(label="Deal-breakers", style=discord.TextStyle.paragraph,
-                                        max_length=1000, required=False)
-        other = discord.ui.TextInput(label="Anything else", style=discord.TextStyle.paragraph, max_length=1000,
-                                     required=False)
-
-        def __init__(self, models: list[str]):
-            super().__init__()
-            self.models = models
-
-        async def on_submit(self, interaction: discord.Interaction) -> None:
-            await interaction.response.defer(ephemeral=True, thinking=True)
-            need = str(self.need.value).strip()
-            parts = [("Budget", self.budget.value), ("Must-haves", self.must.value),
-                     ("Deal-breakers", self.breakers.value), ("Anything else", self.other.value)]
-            constraints = "\n".join(f"{label}: {str(v).strip()}" for label, v in parts if str(v).strip())
-            await begin(interaction, "recommend", need, need, constraints, self.models, True, need, need)
-
     @tree.command(name="new", description="Close the open conversation and start fresh")
     @app_commands.describe(topic="Optional topic to start discussing right away")
     async def new(interaction: discord.Interaction, topic: str | None = None):
@@ -223,16 +198,6 @@ def register(bot: "WaggleBot") -> None:
         await begin(interaction, "review", f"Review: {label[:80]}", submission, (context or "").strip(), chosen,
                     resolve_search("review", search), f"{page_title}\n\n{text}", label, source_url=url,
                     note=ingest.linked_pages_note(pages))
-
-    @tree.command(name="recommend", description="Start a product recommendation (opens a form)")
-    @app_commands.describe(models="Models to include, comma-separated (default: all)")
-    async def recommend(interaction: discord.Interaction, models: str | None = None):
-        if not await ready(interaction) or not await can_start(interaction):
-            return
-        chosen, error = parse_models(models)
-        if error:
-            return await respond(interaction, error)
-        await interaction.response.send_modal(RecommendModal(chosen))
 
     @tree.command(name="discuss", description="Start an open discussion")
     @app_commands.describe(topic="What to discuss", file="Optional .txt, .md, or .pdf file",

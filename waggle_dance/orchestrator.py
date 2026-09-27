@@ -24,7 +24,7 @@ from .voting import VoteError, borda, parse_ballot, parse_candidates, tally_text
 
 log = logging.getLogger(__name__)
 
-MODES = ("review", "recommend", "discuss")
+MODES = ("review", "discuss")
 
 
 class Busy(Exception):
@@ -262,8 +262,6 @@ class Orchestrator:
             log.warning("%s failed in %s: %r", key, phase, exc)
             return None
         text = apply_style_filters(reply.text, self.cfg.get("style_filters") or [])
-        if s.mode == "recommend":
-            text = text.replace("NO SOURCE", "**NO SOURCE**")
         citations = await ingest.resolve_redirects(reply.citations)
         entry = self._append(s, Entry(seq=s.next_seq(), speaker=key, kind="model", phase=phase, round=0,
                                       text=text, citations=citations))
@@ -404,15 +402,8 @@ class Orchestrator:
     async def consensus(self, s: Session, out: Output, summarizer: str | None = None) -> Entry | None:
         names = self.names()
         key = summarizer or self._rotating(s, "summarizer")
-        calls = {key: 1}
-        if s.mode == "recommend":
-            for k in s.models:
-                calls[k] = calls.get(k, 0) + 1
-            calls[key] += 1
-        await self.warn_if_expensive(s, calls, out)
+        await self.warn_if_expensive(s, {key: 1}, out)
         await out.post_status(f"{names[key]} is writing the consensus.")
-        if s.mode == "recommend":
-            await self.vote(s, out, summarizer=key)
         async with out.typing():
             entry = await self._turn(s, key, *self.view(s, key, prompts.CONSENSUS[s.mode]), "consensus", out)
         if entry:

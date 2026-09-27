@@ -72,11 +72,12 @@ async def test_vote_tallies_in_code_and_drops_bad_ballot(orch, providers, cfg, o
     assert len(providers["muse"].calls) == 2
 
 
-async def test_recommend_consensus_runs_vote_first(orch, out):
-    s = new(orch, mode="recommend", search=True)
+async def test_consensus_is_one_turn_and_tracks_freshness(orch, out):
+    s = new(orch)
     await orch.opening(s, out)
     entry = await orch.consensus(s, out, summarizer="claude")
-    assert out.votes, "vote should run before a recommend consensus"
+    assert not out.votes
+    assert out.posts[-1][0] == "claude" and out.posts[-1][3] == "Consensus"
     assert entry.phase == "consensus" and s.consensus_seq == entry.seq
     assert not s.needs_consensus()
     orch.add_owner_message(s, "one more thing")

@@ -11,7 +11,7 @@ from waggle_dance.discord_io import ChannelOutput, reply_messages, sources_line,
 from waggle_dance.voting import borda
 
 EXPECTED = {
-    "new", "review", "recommend", "discuss", "consensus", "vote", "ask", "role", "disagree", "cost",
+    "new", "review", "discuss", "consensus", "vote", "ask", "role", "disagree", "cost",
     "export", "pause", "resume", "close", "models", "instructions", "reload", "help",
 }
 CHANNEL = 2

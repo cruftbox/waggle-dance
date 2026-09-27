@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 AUTO_CLOSE_CHECK_SECONDS = 600
 SEEN = "\N{EYES}"
 WAIT = "\N{HOURGLASS WITH FLOWING SAND}"
-MODE_LABELS = {"review": "Review request", "recommend": "Recommendation request", "discuss": "Discussion"}
+MODE_LABELS = {"review": "Review request", "discuss": "Discussion"}
 FILE_EXTENSIONS = (".txt", ".md", ".markdown", ".pdf")
 
 
@@ -135,11 +135,9 @@ class WaggleBot(discord.Client):
             body = topic
             material = submission if submission != topic else ""
         else:
-            body = submission if mode == "recommend" else (source_url or "")
-            material = "" if mode == "recommend" else submission
-            if mode == "recommend" and context:
-                body += f"\n\n{context}"
-            if mode == "review" and context:
+            body = source_url or ""
+            material = submission
+            if context:
                 body += f"\n\nContext: {context}"
         head = f"**{MODE_LABELS[mode]}**\n"
         file = None

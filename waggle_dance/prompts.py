@@ -29,11 +29,17 @@ def discussion_rules(
         "Do not restate what others said. Respond to it.",
         "Agree only where you actually agree. Say so directly when you disagree, and why.",
         "Base your answers on real-world constraints, not theoretical possibilities.",
+        f"Treat {owner_name}'s messages as discussion topics, not search queries. Give a reasoned view that engages "
+        "with the points already made. When the question turns on a contested term or assumption, explain the "
+        "distinction you are using. Distinguish documented facts from interpretation. When it would clarify a "
+        "genuine disagreement, say what would change your view. Do not force these steps into a rigid format.",
         "Write plain text or light Markdown. Do not add a heading with your name; the thread shows who is speaking.",
     ]
     if search:
         lines.append(
-            "Web search is on. Cite a source URL for every factual claim about a product, price, or current event."
+            "Web search is on. Use it to check facts, not to supply your argument; build the argument yourself "
+            "instead of summarizing results. Cite a source for specific facts you rely on, such as dates, names, "
+            "figures, prices, and current events. Your reasoning and interpretation don't need citations."
         )
     else:
         lines.append("Web search is off for this session. Work from what you know and say when you are unsure.")

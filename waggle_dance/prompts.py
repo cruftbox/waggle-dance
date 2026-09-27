@@ -2,23 +2,6 @@
 
 from __future__ import annotations
 
-ROLE_PRESETS = {
-    "skeptic": "the skeptic. Look for weak claims, missing evidence, and risks the others are glossing over. "
-    "Say plainly when something does not hold up.",
-    "advocate": "the advocate. Make the strongest honest case for the ideas on the table, "
-    "and say what would have to be true for them to work.",
-    "editor": "the editor. Focus on clarity, structure, word choice, and cutting what is not needed.",
-    "target reader": "the target reader. React as the intended audience would: what you understand, "
-    "what loses you, and what you would do next.",
-}
-
-
-def role_text(role: str | None) -> str:
-    if not role:
-        return ""
-    preset = ROLE_PRESETS.get(role.strip().lower())
-    return f"Your role for the rest of this session: you are {preset or role.strip() + '.'}"
-
 
 def discussion_rules(
     name: str,
@@ -26,7 +9,6 @@ def discussion_rules(
     owner_name: str,
     max_chars: int,
     search: bool,
-    role: str | None,
     today: str = "",
 ) -> str:
     if others:
@@ -54,8 +36,6 @@ def discussion_rules(
         )
     else:
         lines.append("Web search is off for this session. Work from what you know and say when you are unsure.")
-    if role:
-        lines.append(role_text(role))
     return "\n".join(lines)
 
 
@@ -101,13 +81,6 @@ FOLLOW_UP = (
 
 ASK = "{owner} asked you a question in the latest message. Answer it directly."
 
-ASK_WITH_QUESTION = "{owner} asks you: {question}\n\nAnswer it directly."
-
-DISAGREE = (
-    "List only the points where the participants disagree. For each point, say who holds which position, "
-    "attributed by name. Skip everything they agree on. If there are no real disagreements, say so in one sentence."
-)
-
 CONSENSUS = {
     "discuss": (
         "You are writing the outcome of this discussion. Give: the key points raised, where the participants agree, "
@@ -121,24 +94,6 @@ CONSENSUS = {
         "Drop edits that later discussion rejected, and edits that ask for academic rigor a blog post does not need."
     ),
 }
-
-VOTE_EXTRACT = {
-    "discuss": "the distinct positions or options proposed in this discussion",
-    "review": "the edits proposed in this discussion, each as a short label that names the passage and the change",
-}
-
-VOTE_EXTRACT_INSTRUCTION = (
-    "List {what}. Merge duplicates. Use short, distinct names, at most 8 items. "
-    'Reply with JSON only, no other text, in this form: {{"candidates": ["first", "second"]}}'
-)
-
-VOTE_RANK_INSTRUCTION = (
-    "Rank these candidates from best to worst, based on the discussion:\n\n{numbered}\n\n"
-    "Include every candidate exactly once, using the exact text shown. "
-    'Reply with JSON only, no other text, in this form: {{"ranking": ["best", "next"], "reason": "one line"}}'
-)
-
-JSON_RETRY = "Your last reply could not be used: {error}. Reply again with JSON only, in the form requested."
 
 TITLE = (
     "Write a title of 6 words or fewer for a discussion thread about the text below. "

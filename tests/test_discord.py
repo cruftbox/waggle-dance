@@ -7,12 +7,11 @@ import discord
 from waggle_dance import commands
 from waggle_dance.bot import WaggleBot
 from waggle_dance.config import Settings
-from waggle_dance.discord_io import ChannelOutput, reply_messages, sources_line, vote_messages
-from waggle_dance.voting import borda
+from waggle_dance.discord_io import ChannelOutput, reply_messages, sources_line
 
 EXPECTED = {
-    "new", "review", "discuss", "consensus", "vote", "ask", "role", "disagree", "cost",
-    "export", "pause", "resume", "close", "models", "instructions", "reload", "help",
+    "new", "review", "consensus", "cost", "export", "pause", "resume", "close",
+    "models", "instructions", "reload", "help",
 }
 CHANNEL = 2
 EYES = "\N{EYES}"
@@ -127,16 +126,6 @@ def test_long_reply_splits_under_the_message_limit():
     msgs = reply_messages(text, [{"title": "S", "url": "https://s.example/"}], "")
     assert len(msgs) == 4 and all(len(m) <= 2000 for m in msgs)
     assert msgs[-1].endswith("-# Sources: [S](<https://s.example/>)")
-
-
-def test_vote_messages_render_a_table():
-    ballots = {"claude": ["Beta", "Alpha"], "gemini": ["Beta", "Alpha"]}
-    msgs = vote_messages(borda(["Alpha", "Beta"], ballots), ballots, {"claude": "cheaper"}, {"muse": "invalid JSON"},
-                         {"claude": "Claude", "gemini": "Gemini", "muse": "Muse Spark"})
-    assert msgs[0].startswith("**Vote (Borda count)**\n```")
-    assert "Beta" in msgs[0]
-    assert "cheaper" in msgs[1] and "vote dropped (invalid JSON)" in msgs[1]
-    assert all(len(m) <= 2000 for m in msgs)
 
 
 async def test_model_replies_are_plain_webhook_messages(cfg):
@@ -299,4 +288,4 @@ def test_review_takes_a_required_url(orch):
     commands.register(bot)
     review = bot.tree.get_command("review")
     params = {p.name: p.required for p in review.parameters}
-    assert params == {"url": True, "context": False, "models": False, "search": False}
+    assert params == {"url": True, "context": False}

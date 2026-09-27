@@ -193,12 +193,12 @@ class WaggleBot(discord.Client):
         self.orch.add_owner_message(s, message.content.strip())
         await message.add_reaction(SEEN)
         if target:
-            self.run_command(s, lambda out: self.orch.ask(s, target, None, out))
+            self.run_command(s, lambda out: self.orch.ask(s, target, out))
         else:
             self.run_command(s, lambda out: self.orch.follow_up(s, out))
 
     async def _discuss_from_message(self, message: discord.Message) -> None:
-        """With no open conversation, a plain message starts one, like /discuss with default options."""
+        """With no open conversation, a plain message starts one."""
         topic = message.content.strip()
         files = [a for a in message.attachments if a.filename.lower().endswith(FILE_EXTENSIONS)]
         if not topic and not files:

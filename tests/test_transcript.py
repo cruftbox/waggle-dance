@@ -66,5 +66,5 @@ def test_today_text_uses_tz(monkeypatch):
 def test_rules_state_the_date():
     from waggle_dance.prompts import discussion_rules
 
-    rules = discussion_rules("Claude", ["Gemini"], "Michael", 1000, False, None, today="Sunday, September 27, 2026")
+    rules = discussion_rules("Claude", ["Gemini"], "Michael", 1000, False, today="Sunday, September 27, 2026")
     assert "Today's date is Sunday, September 27, 2026." in rules

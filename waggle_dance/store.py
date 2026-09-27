@@ -1,4 +1,4 @@
-"""SQLite persistence for sessions, transcript entries, roles, and usage.
+"""SQLite persistence for sessions, transcript entries, and usage.
 
 Writes are small and infrequent, so this uses the standard sqlite3 module
 directly from the event loop.
@@ -38,12 +38,6 @@ CREATE TABLE IF NOT EXISTS entries (
     message_ids TEXT NOT NULL DEFAULT '[]',
     created TEXT NOT NULL,
     UNIQUE (session, seq)
-);
-CREATE TABLE IF NOT EXISTS roles (
-    session INTEGER NOT NULL REFERENCES sessions(session_id),
-    model TEXT NOT NULL,
-    role TEXT NOT NULL,
-    PRIMARY KEY (session, model)
 );
 CREATE TABLE IF NOT EXISTS usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,7 +106,6 @@ class Store:
         data = dict(row)
         data["settings"] = json.loads(data["settings"])
         data["entries"] = self.entries(session_id)
-        data["roles"] = self.roles(session_id)
         return data
 
     def open_session_ids(self) -> list[int]:
@@ -146,23 +139,6 @@ class Store:
                   created=r["created"])
             for r in rows
         ]
-
-    # Roles
-
-    def set_role(self, session_id: int, model: str, role: str | None) -> None:
-        if role:
-            self.db.execute(
-                "INSERT INTO roles (session, model, role) VALUES (?, ?, ?) "
-                "ON CONFLICT (session, model) DO UPDATE SET role = excluded.role",
-                (session_id, model, role),
-            )
-        else:
-            self.db.execute("DELETE FROM roles WHERE session = ? AND model = ?", (session_id, model))
-        self.db.commit()
-
-    def roles(self, session_id: int) -> dict[str, str]:
-        rows = self.db.execute("SELECT model, role FROM roles WHERE session = ?", (session_id,))
-        return {r["model"]: r["role"] for r in rows}
 
     # Usage
 

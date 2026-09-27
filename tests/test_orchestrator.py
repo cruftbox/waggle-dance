@@ -25,16 +25,15 @@ async def test_opening_is_blind_and_parallel(orch, providers, out):
     assert [e.phase for e in s.entries] == ["opening"] * 4
 
 
-async def test_system_prompt_layers_shared_model_rules_and_role(orch, providers, out):
+async def test_system_prompt_layers_shared_model_and_rules(orch, providers, out):
     s = new(orch)
-    orch.set_role(s, "gemini", "skeptic")
     await orch.opening(s, out)
     gem = providers["gemini"].calls[0]["system"]
     assert gem.index("SHARED RULES") < gem.index("GEMINI ONLY") < gem.index("# Discussion rules")
-    assert "You are Gemini" in gem and "the skeptic" in gem
+    assert "You are Gemini" in gem
     assert "under 2000 characters, not counting URLs" in gem
     claude = providers["claude"].calls[0]["system"]
-    assert "GEMINI ONLY" not in claude and "skeptic" not in claude
+    assert "GEMINI ONLY" not in claude
 
 
 async def test_failed_provider_does_not_stop_the_session(orch, providers, cfg, out):
@@ -49,34 +48,18 @@ async def test_failed_provider_does_not_stop_the_session(orch, providers, cfg, o
     assert all(e.speaker != "chatgpt" for e in s.entries)
 
 
-async def test_ask_records_question_and_only_one_model_answers(orch, providers, out):
+async def test_ask_has_only_one_model_answer(orch, providers, out):
     s = new(orch)
-    await orch.ask(s, "gemini", "why tea?", out)
+    orch.add_owner_message(s, "why tea?")
+    await orch.ask(s, "gemini", out)
     assert [p[0] for p in out.posts] == ["gemini"]
-    assert s.entries[0].kind == "owner" and s.entries[0].text == "(to Gemini) why tea?"
     assert providers["claude"].calls == []
-
-
-async def test_vote_tallies_in_code_and_drops_bad_ballot(orch, providers, cfg, out):
-    providers["muse"] = RecordingProvider("muse", cfg["models"]["muse"], replies=["not json", "still not json"])
-    orch.providers = providers
-    s = new(orch)
-    text = await orch.vote(s, out)
-    vote = out.votes[0]
-    assert set(vote["ballots"]) == {"claude", "chatgpt", "gemini"}
-    assert "muse" in vote["dropped"]
-    assert sum(r.points for r in vote["rows"]) == 3 * (2 + 1 + 0)
-    assert "Muse Spark's vote was dropped" in text
-    assert s.entries[-1].kind == "system"
-    # Muse was asked twice: once, then once more with the error.
-    assert len(providers["muse"].calls) == 2
 
 
 async def test_consensus_is_one_turn_and_tracks_freshness(orch, out):
     s = new(orch)
     await orch.opening(s, out)
     entry = await orch.consensus(s, out, summarizer="claude")
-    assert not out.votes
     assert out.posts[-1][0] == "claude" and out.posts[-1][3] == "Consensus"
     assert entry.phase == "consensus" and s.consensus_seq == entry.seq
     assert not s.needs_consensus()
@@ -114,7 +97,6 @@ async def test_close_summary_runs_consensus_when_stale(orch, out):
 
 async def test_session_save_and_restore(orch, cfg, providers, store, out, tmp_path):
     s = new(orch, search=True)
-    orch.set_role(s, "claude", "editor")
     await orch.opening(s, out)
     orch.add_owner_message(s, "hello")
     await orch.follow_up(s, out)
@@ -122,7 +104,7 @@ async def test_session_save_and_restore(orch, cfg, providers, store, out, tmp_pa
     restored = Orchestrator(cfg, providers, store, {}, "Michael", tmp_path / "exports")
     assert restored.load_open_sessions() == 1
     r = restored.get(1)
-    assert r.search is True and r.roles == {"claude": "editor"}
+    assert r.search is True
     assert [(e.seq, e.speaker, e.text, e.message_ids) for e in r.entries] == [
         (e.seq, e.speaker, e.text, e.message_ids) for e in s.entries
     ]

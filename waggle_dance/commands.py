@@ -43,7 +43,8 @@ In the open conversation:
 `/cost` estimated spend so far
 `/export` transcript as Markdown and JSON
 `/pause` and `/resume` stop the current command and block new ones, then allow them again
-`/close [mode] [summarizer]` end the conversation
+`/close [summarizer]` end the conversation: one model sums up, then the transcript is posted
+`/close mode:quiet` just end it, posting nothing
 
 Also: `/models`, `/instructions [model]`, `/reload`, `/help`"""
 
@@ -368,13 +369,21 @@ def register(bot: "WaggleBot") -> None:
         await respond(interaction, "Resumed.", ephemeral=False)
 
     @tree.command(name="close", description="End the conversation")
-    @app_commands.describe(mode="summary runs a consensus first; quiet skips it",
+    @app_commands.describe(mode="summary: a model sums up and the transcript is posted. quiet: close, post nothing",
                            summarizer="Model to write the summary (default: rotates)")
     @app_commands.autocomplete(summarizer=model_choices)
     async def close(interaction: discord.Interaction, mode: Literal["summary", "quiet"] = "summary",
                     summarizer: str | None = None):
         if not (s := await session_ready(interaction)):
             return
+        if mode == "quiet":
+            # Nothing in the channel. The export is still saved to disk, and
+            # the only reply is a private note that removes itself.
+            try:
+                await bot.close_session(s, "quiet", announce=False)
+            except (Busy, Paused):
+                return await respond(interaction, "Could not close: the conversation is busy or paused.")
+            return await interaction.response.send_message("Closed.", ephemeral=True, delete_after=5)
         key = model_key(s, summarizer) if summarizer else None
         if summarizer and not key:
             return await respond(interaction, f"{summarizer} is not in this conversation.")

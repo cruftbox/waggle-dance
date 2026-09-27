@@ -270,3 +270,25 @@ async def test_close_attaches_the_export(orch):
     record, _ = bot.channel.sent[-2]
     assert record.startswith("Conversation closed:")
     assert isinstance(bot.channel.sent[-1][1]["file"], discord.File)
+
+
+def test_descriptions_fit_discord_limits(orch):
+    bot = WaggleBot(settings(), orch, lambda: None)
+    commands.register(bot)
+    for cmd in bot.tree.get_commands():
+        assert len(cmd.description) <= 100, cmd.name
+        for param in cmd.parameters:
+            assert len(param.description) <= 100, f"{cmd.name}.{param.name}"
+
+
+async def test_quiet_close_posts_nothing(orch):
+    bot = make_bot(orch)
+    await bot.on_message(FakeMessage("Topic"))
+    await settle(bot)
+    s = orch.current()
+    before = list(bot.channel.sent)
+    assert await bot.close_session(s, mode="quiet", announce=False)
+    assert bot.channel.sent == before
+    assert orch.current() is None
+    assert orch.store.get_session(s.session_id)["status"] == "closed"
+    assert list(orch.exports_dir.glob(f"{s.session_id}-*.md"))

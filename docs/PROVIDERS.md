@@ -1,6 +1,6 @@
 # Providers
 
-What each vendor's API looked like when this was built, where it came from, and where the build differs from the original plan. Checked on 2026-09-26. Vendors change model IDs, prices, and request formats; re-check the linked pages when you update `config/models.yaml`.
+What each vendor's API looked like when this was built, where it came from, and where the build differs from the original plan. Checked on 2026-09-26; OpenAI prices rechecked on 2026-09-28. Vendors change model IDs, prices, and request formats; re-check the linked pages when you update `config/models.yaml`.
 
 SDK versions at the time: `anthropic` 1.8.0, `openai` 3.19.2, `google-genai` 2.25.0.
 
@@ -34,6 +34,7 @@ Findings:
 - Usage fields: `input_tokens` (uncached), `cache_read_input_tokens`, `cache_creation_input_tokens`, `output_tokens`, and `server_tool_use.web_search_requests`.
 - Prices: $4 input, $20 output, $5 for 5-minute cache writes, $0.20 for cache reads, per 1M tokens. Search costs $10 per 1,000 searches plus tokens.
 - Minimum cacheable prefix for Opus 5.5 is 512 tokens. Shorter prompts are not cached and no error is returned.
+- The cache the bot uses lasts 5 minutes. A follow-up more than 5 minutes after the last Claude call finds it expired and writes it again at the cache-write price, which is why `/cost` can show Claude with almost no plain input and no cached input: nearly all of its input is cache writes. `/cost` does not show cache writes as a column, but they are included in the dollar figure.
 - A long search can end with `stop_reason: "pause_turn"`. The provider sends the paused turn back unchanged, up to 3 times.
 - A declined request ends with `stop_reason: "refusal"`. The config sets `fallbacks: default`, which asks the API to rerun a declined request on a fallback model it picks (beta `server-side-fallback-2026-07-01`). Set `fallbacks: null` to turn this off.
 
@@ -46,6 +47,19 @@ Sources:
 
 Findings:
 - Current models are `gpt-6-astra` ($10 / $50, most capable), `gpt-6-sol` ($2 / $10, balanced), and `gpt-6-luna` ($0.10 / $0.50). The config uses `gpt-6-sol`. OpenAI describes Astra as the choice for the hardest work; switch the `model` field if you want it.
+- The older GPT-5.6 models are not cheaper at the same tier. Standard prices per 1M tokens (input / cached / output), checked 2026-09-28:
+
+  | Model | Input | Cached | Output |
+  |---|---|---|---|
+  | `gpt-6-astra` | $10.00 | $1.00 | $50.00 |
+  | `gpt-6-sol` | $2.00 | $0.20 | $10.00 |
+  | `gpt-6-luna` | $0.10 | $0.01 | $0.50 |
+  | `gpt-5.6-sol` | $4.00 | $0.40 | $20.00 |
+  | `gpt-5.6-terra` | $2.00 | $0.20 | $12.00 |
+  | `gpt-5.6-luna` | $0.20 | $0.02 | $1.20 |
+
+  Long-context requests cost more on every model (for `gpt-6-sol`, $4.00 / $0.40 / $15.00). Batch, Flex, and fast mode tiers exist; the bot uses Standard.
+- To list the model IDs your key can use, see [CONFIG.md](CONFIG.md#switching-a-model).
 - The Responses API is used because web search needs it. Instructions go in as a `developer` message.
 - Web search: `{"type": "web_search"}`. Each search appears as a `web_search_call` output item. Citations are `url_citation` annotations (`url`, `title`, `start_index`, `end_index`) on `output_text` parts.
 - Usage fields: `input_tokens` (includes cached), `input_tokens_details.cached_tokens`, `output_tokens` (includes reasoning).
@@ -69,6 +83,7 @@ Findings:
 - Usage fields: `total_input_tokens`, `total_cached_tokens`, `total_output_tokens`, `total_thought_tokens`.
 - Prices are promotional through 2026-12-31 and double on 2027-01-01 (input $1.50, output $7.50, cached $0.15).
 - Search: 5,000 free queries per month shared across Gemini 3.x models, then $14 per 1,000. The cost estimate counts every search as paid.
+- Gemini decides how much to search on its own, and the count varies widely. On 2026-09-28 one opening-round call reported 45 searches, about $0.63 of search in a single reply.
 
 ## Muse Spark (Meta)
 

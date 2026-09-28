@@ -1,8 +1,10 @@
 import asyncio
 
 import pytest
+from pypdf import PdfReader
 
 from conftest import RecordingProvider
+from waggle_dance import pdf
 from waggle_dance.orchestrator import Busy, Orchestrator
 
 MODELS = ["claude", "chatgpt", "gemini", "muse"]
@@ -84,13 +86,29 @@ async def test_summarizer_rotates_across_sessions(orch, out):
 async def test_close_writes_exports_and_releases_state(orch, out, store):
     s = new(orch)
     await orch.opening(s, out)
-    md, js, record = await orch.close(s, out, mode="quiet")
-    assert md.exists() and js.exists()
+    paths, record = await orch.close(s, out, mode="quiet")
+    md, pdf_path = paths
+    assert (md.suffix, pdf_path.suffix) == (".md", ".pdf")
     assert "Is tea better than coffee?" in md.read_text(encoding="utf-8")
+    pdf_text = "".join(page.extract_text() for page in PdfReader(pdf_path).pages)
+    assert "Is tea better than coffee?" in pdf_text
+    assert not list(orch.exports_dir.glob("*.json"))
     assert "closed without a summary" in record
     assert orch.get(1) is None
     assert store.get_session(1)["status"] == "closed"
     assert store.open_session_ids() == []
+
+
+async def test_close_still_saves_markdown_when_the_pdf_fails(orch, out, monkeypatch):
+    def broken(text, title):
+        raise ValueError("no fonts")
+
+    monkeypatch.setattr(pdf, "markdown_to_pdf", broken)
+    s = new(orch)
+    await orch.opening(s, out)
+    paths, _ = await orch.close(s, out, mode="quiet")
+    assert [p.suffix for p in paths] == [".md"]
+    assert orch.get(1) is None
 
 
 async def test_close_summary_always_writes_a_consensus(orch, out):

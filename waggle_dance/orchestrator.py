@@ -7,7 +7,6 @@ object, which the bot implements with webhooks and tests implement with lists.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import re
 from contextlib import AbstractAsyncContextManager
@@ -15,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Awaitable, Callable, Protocol
 
-from . import costs, ingest, prompts
+from . import costs, ingest, pdf, prompts
 from .config import enabled_models, model_timeout, today_text
 from .providers.base import Provider, ProviderError, Reply
 from .store import Store
@@ -369,12 +368,13 @@ class Orchestrator:
         return sum(u["cost"] or 0 for u in self.store.usage_by_model(s.session_id).values())
 
     async def close(self, s: Session, out: Output, mode: str = "quiet",
-                    announce: bool = True) -> tuple[Path, Path, str]:
+                    announce: bool = True) -> tuple[list[Path], str]:
         """Post a closing record, write exports, mark closed, and drop the session from memory.
 
         With announce=False, nothing is posted; the caller says what happened.
 
-        The bot attaches the Markdown export in Discord afterward.
+        Returns the saved export files and the closing record. With announce,
+        the bot attaches the export files in Discord afterward.
         """
         if mode == "summary" and any(e.kind == "model" for e in s.entries):
             await self.consensus(s, out)
@@ -395,10 +395,10 @@ class Orchestrator:
 
         s.status = "closed"
         self.store.update_session(s.session_id, status="closed", settings=s.settings())
-        md_path, json_path = self.write_exports(s)
+        paths = await self.write_exports(s)
         self.sessions.pop(s.session_id, None)
         self._locks.pop(s.session_id, None)
-        return md_path, json_path, record_text
+        return paths, record_text
 
     # Exports
 
@@ -425,27 +425,39 @@ class Orchestrator:
                 e.speaker, e.speaker)
             lines += ["", f"### {who} ({e.phase})", "", e.text]
             if e.citations:
-                lines += ["", "Sources:"] + [f"- [{c['title']}]({c['url']})" for c in e.citations]
+                lines += ["", "Sources:", ""] + [f"- [{c['title']}]({c['url']})" for c in e.citations]
         lines += ["", "## Cost", "", self.cost_report(s), ""]
         return "\n".join(lines)
 
-    def export_json(self, s: Session) -> str:
-        data = {
-            "session_id": s.session_id, "mode": s.mode, "topic": s.topic, "title": s.title,
-            "submission": s.submission, "constraints": s.constraints, "models": s.models, "search": s.search,
-            "status": s.status, "created": s.created, "last_activity": s.last_activity,
-            "entries": [e.__dict__ for e in s.entries],
-            "usage": self.store.usage_by_model(s.session_id),
-        }
-        return json.dumps(data, indent=2, ensure_ascii=False)
+    def export_name(self, s: Session) -> str:
+        """File name for exports, without an extension."""
+        return f"{s.session_id}-{_slug(s.title)}"
 
-    def write_exports(self, s: Session) -> tuple[Path, Path]:
+    async def export_pdf(self, s: Session, markdown_text: str | None = None) -> bytes | None:
+        """The Markdown export laid out as a PDF, or None if rendering fails.
+
+        Long transcripts can take a minute, so this runs in a worker thread.
+        """
+        text = markdown_text if markdown_text is not None else self.export_markdown(s)
+        try:
+            return await asyncio.to_thread(pdf.markdown_to_pdf, text, s.title)
+        except Exception:
+            log.exception("PDF export failed for session %s", s.session_id)
+            return None
+
+    async def write_exports(self, s: Session) -> list[Path]:
+        """Save the Markdown and PDF exports. Returns the files written."""
         self.exports_dir.mkdir(parents=True, exist_ok=True)
-        base = self.exports_dir / f"{s.session_id}-{_slug(s.title)}"
-        md_path, json_path = base.with_suffix(".md"), base.with_suffix(".json")
-        md_path.write_text(self.export_markdown(s), encoding="utf-8")
-        json_path.write_text(self.export_json(s), encoding="utf-8")
-        return md_path, json_path
+        base = self.exports_dir / self.export_name(s)
+        text = self.export_markdown(s)
+        md_path = base.with_suffix(".md")
+        md_path.write_text(text, encoding="utf-8")
+        paths = [md_path]
+        if (data := await self.export_pdf(s, text)) is not None:
+            pdf_path = base.with_suffix(".pdf")
+            pdf_path.write_bytes(data)
+            paths.append(pdf_path)
+        return paths
 
     # Thread titles
 

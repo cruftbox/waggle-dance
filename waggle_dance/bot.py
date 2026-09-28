@@ -153,14 +153,14 @@ class WaggleBot(discord.Client):
     async def close_session(self, s: Session, mode: str, announce: bool = True) -> None:
         """Close a conversation under its session lock. Raises Busy.
 
-        With announce, posts the closing record and attaches the Markdown export.
+        With announce, posts the closing record and attaches the Markdown and PDF exports.
         """
         out = self.output()
-        md_path, _, _ = await self.orch.run(
+        paths, _ = await self.orch.run(
             s.session_id, lambda: self.orch.close(s, out, mode=mode, announce=announce)
         )
         if announce:
-            await self.channel.send(file=discord.File(md_path, filename=md_path.name))
+            await self.channel.send(files=[discord.File(p, filename=p.name) for p in paths])
 
     # Owner messages in the channel
 

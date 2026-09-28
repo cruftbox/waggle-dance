@@ -11,7 +11,7 @@ from waggle_dance.discord_io import ChannelOutput, reply_messages, sources_line,
 from waggle_dance.voting import borda
 
 EXPECTED = {
-    "new", "review", "consensus", "vote", "disagree", "cost", "export", "close",
+    "new", "review", "consensus", "vote", "disagree", "cost", "export", "close", "summarize",
     "models", "instructions", "reload", "help",
 }
 CHANNEL = 2
@@ -256,7 +256,8 @@ async def test_close_attaches_the_export(orch):
     assert orch.current() is None
     record, _ = bot.channel.sent[-2]
     assert record.startswith("Conversation closed:")
-    assert isinstance(bot.channel.sent[-1][1]["file"], discord.File)
+    files = bot.channel.sent[-1][1]["files"]
+    assert [f.filename.rsplit(".", 1)[1] for f in files] == ["md", "pdf"]
 
 
 def test_descriptions_fit_discord_limits(orch):
@@ -279,6 +280,14 @@ async def test_quiet_close_posts_nothing(orch):
     assert orch.current() is None
     assert orch.store.get_session(s.session_id)["status"] == "closed"
     assert list(orch.exports_dir.glob(f"{s.session_id}-*.md"))
+    assert list(orch.exports_dir.glob(f"{s.session_id}-*.pdf"))
+
+
+def test_close_and_summarize_take_no_options(orch):
+    bot = WaggleBot(settings(), orch, lambda: None)
+    commands.register(bot)
+    assert bot.tree.get_command("close").parameters == []
+    assert bot.tree.get_command("summarize").parameters == []
 
 
 def test_review_takes_a_required_url(orch):

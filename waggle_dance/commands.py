@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import logging
 from typing import TYPE_CHECKING
 
@@ -31,9 +32,9 @@ In the open conversation:
 `/vote` ranked vote, tallied with a Borda count
 `/consensus [summarizer]` one model writes the outcome
 `/cost` estimated spend so far
-`/export` transcript as Markdown and JSON
+`/export` transcript as Markdown and PDF
 `/close` end the conversation, posting nothing
-`/close summarize:True` one model writes a consensus, then the transcript is posted
+`/summarize` one model writes a consensus, then the conversation closes and the transcript is posted
 
 Also: `/models`, `/instructions [model]`, `/reload`, `/help`"""
 
@@ -197,30 +198,42 @@ def register(bot: "WaggleBot") -> None:
             return
         await respond(interaction, orch.cost_report(s))
 
-    @tree.command(name="export", description="Attach the transcript as Markdown and JSON")
+    @tree.command(name="export", description="Attach the transcript as Markdown and PDF")
     async def export(interaction: discord.Interaction):
         if not (s := await session_ready(interaction, need_free=False)):
             return
-        base = f"{s.session_id}"
-        await interaction.response.send_message(
-            "Transcript export:",
-            files=[text_file(orch.export_markdown(s), f"{base}.md"), text_file(orch.export_json(s), f"{base}.json")],
-        )
+        # A long transcript can take a minute to lay out as a PDF.
+        await interaction.response.defer(thinking=True)
+        name = orch.export_name(s)
+        text = orch.export_markdown(s)
+        files = [text_file(text, f"{name}.md")]
+        note = "Transcript export:"
+        if (data := await orch.export_pdf(s, text)) is not None:
+            files.append(discord.File(io.BytesIO(data), filename=f"{name}.pdf"))
+        else:
+            note = "Transcript export (the PDF could not be made):"
+        await interaction.followup.send(note, files=files)
 
-    @tree.command(name="close", description="End the conversation")
-    @app_commands.describe(summarize="Have a model write a consensus first, then post the transcript")
-    async def close(interaction: discord.Interaction, summarize: bool = False):
+    @tree.command(name="close", description="End the conversation, posting nothing")
+    async def close(interaction: discord.Interaction):
         if not (s := await session_ready(interaction)):
             return
-        if not summarize:
-            # Nothing in the channel. The export is still saved to disk, and
-            # the only reply is a private note that removes itself.
-            try:
-                await bot.close_session(s, "quiet", announce=False)
-            except Busy:
-                return await respond(interaction, "Could not close: another command is running.")
-            return await interaction.response.send_message("Closed.", ephemeral=True, delete_after=5)
-        await respond(interaction, "Closing the conversation.")
+        # Nothing in the channel. The export is still saved to disk, and the only
+        # reply is a private note that removes itself. Saving the PDF can take longer
+        # than Discord waits for a reply, so defer first.
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            await bot.close_session(s, "quiet", announce=False)
+        except Busy:
+            return await respond(interaction, "Could not close: another command is running.")
+        message = await interaction.edit_original_response(content="Closed.")
+        await message.delete(delay=5)
+
+    @tree.command(name="summarize", description="One model writes a consensus, then the conversation closes")
+    async def summarize(interaction: discord.Interaction):
+        if not (s := await session_ready(interaction)):
+            return
+        await respond(interaction, "Summarizing, then closing the conversation.")
 
         async def run_close():
             try:

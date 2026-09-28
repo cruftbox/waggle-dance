@@ -13,6 +13,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# DejaVu fonts for the PDF transcript export (waggle_dance/pdf.py).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-dejavu-core fonts-dejavu-extra \
+    && rm -rf /var/lib/apt/lists/*
+
 # pytest is included so tests and the smoke script run in the same image as the bot.
 COPY requirements.txt requirements-dev.txt ./
 RUN pip install --root-user-action=ignore -r requirements-dev.txt

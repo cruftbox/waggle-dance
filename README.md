@@ -12,7 +12,9 @@ It is built for one person or a small group in their own Discord server. Every m
 
 The name comes from honeybee scouts, which choose a new nest site by debating with waggle dances until a quorum agrees.
 
-<!-- Screenshot: a conversation in the channel -->
+<p align="center">
+  <img src="docs/images/waggle-dance-example.png" alt="A question in the waggle-dance channel and Gemini's reply" width="617">
+</p>
 
 ---
 

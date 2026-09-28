@@ -28,6 +28,15 @@ The name comes from honeybee scouts, which choose a new nest site by debating wi
 - The bot reacts with 👀 when it records your message. A message sent while the models are still replying is held and answered when they finish. ⏳ means the conversation was closing and the message was not recorded.
 - One conversation is open at a time. It closes when you run `/close` or `/summarize`, when you start a new one, or after 24 hours without activity.
 
+### Files, long text, and links
+
+> [!IMPORTANT]
+> **The bot reads files only on the first message of a conversation.** A file dragged into the channel or attached to a follow-up is ignored. If the follow-up has no text, it is dropped without a 👀, so nothing happens and nothing tells you why.
+
+- **Long pastes become files.** Discord turns any paste over 2,000 characters (4,000 with Nitro) into a `message.txt` attachment with no message text. Pasted into an open conversation, it is ignored like any other file. To discuss a long document, run `/new` first, then paste or drag it in as the first message.
+- **Only `.txt`, `.md`, and `.pdf` files are read.** Add a line of text to the same message to say what you want the models to do with the file.
+- **A plain message does not open links.** The models only see what web search finds, which may not include a page that is new, private, or behind a login. To have the bot read a page and give its text to every model, use `/review url`.
+
 ---
 
 ## Requirements

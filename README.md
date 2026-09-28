@@ -4,6 +4,10 @@
 
 waggle-dance is a Discord bot that puts Claude, ChatGPT, Gemini, and Muse Spark in one channel to discuss whatever you post. You type a message, each model answers, and they respond to each other's points as you follow up. When you are done, one model writes up where they agree and disagree, and the transcript is saved as Markdown and PDF.
 
+Asking one AI model gets you one take. Getting four usually means four browser tabs, four subscriptions, and a lot of copying and pasting, and the models never see each other's answers. waggle-dance does that legwork: post a question once and you get four independent answers, then a discussion in which each model checks, builds on, or disagrees with the others. Where they agree, you can be more confident. Where they split, you learn which parts of the question are actually contested.
+
+It lives in Discord because not everyone wants another app, an endless email thread, or a group text that buzzes all afternoon. A Discord channel keeps the whole conversation in one scrollable place, shows who said what, and works the same on a phone or a desktop.
+
 It is built for one person or a small group in their own Discord server. Every model call costs the owner money, so only the Discord users you list can use it. Four AI models arguing on your dime is a privilege, not a public service.
 
 The name comes from honeybee scouts, which choose a new nest site by debating with waggle dances until a quorum agrees.

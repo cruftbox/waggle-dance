@@ -56,7 +56,7 @@ Fair warning: setup is mostly paperwork. You will collect a Discord bot token, t
 1. Go to [https://discord.com/developers/applications](https://discord.com/developers/applications).
 2. Click **New Application** and name it (for example "waggle-dance").
 3. Open the **Bot** tab.
-4. Click **Reset Token** and copy the token. You need it in Step 5.
+4. Click **Reset Token** and copy the token. You need it in Step 5 (Fill in `.env`).
 5. Under **Privileged Gateway Intents**, turn on **Message Content Intent**.
 
    **This is required.** Without it Discord refuses the bot's connection and the bot does not run. The slash commands still appear in Discord, but they fail with "The application did not respond", and the log shows `PrivilegedIntentsRequired`.
@@ -76,6 +76,8 @@ Fair warning: setup is mostly paperwork. You will collect a Discord bot token, t
    - Manage Webhooks *(each model posts through a webhook under its own name)*
    - Use Application Commands
 4. Open the generated URL in a browser and add the bot to your server.
+
+If the bot's channel is private or has permission overrides, the bot needs every permission above allowed in that channel too, not just at the server level. Without **View Channel** there it cannot see the channel at all, and without **Manage Webhooks** there the models cannot post.
 
 ---
 
@@ -124,7 +126,7 @@ These three copies are yours to edit. None of them is tracked by git, so `git pu
 DISCORD_TOKEN=your-bot-token
 DISCORD_GUILD_ID=your-server-id
 DISCORD_CHANNEL_ID=your-channel-id
-ALLOWED_USER_IDS=your-user-id
+ALLOWED_USER_IDS=123456789012345678,234567890123456789
 OWNER_NAME=YourName
 ANTHROPIC_API_KEY=...
 OPENAI_API_KEY=...
@@ -135,7 +137,9 @@ APP_GID=1000
 TZ=America/Los_Angeles
 ```
 
-`APP_UID` and `APP_GID` should match the owner of the project directory on the host (run `id` to see yours). The container writes to `data/`, `config/`, and `instructions/`, which are mounted from the host.
+`ALLOWED_USER_IDS` takes one or more Discord user IDs, separated by commas.
+
+`APP_UID` and `APP_GID` are the user and group the container runs as. Set them to the owner of the project directory on the host: run `id -u` for `APP_UID` and `id -g` for `APP_GID`. The container writes to `data/`, `config/`, and `instructions/`, which are mounted from the host, so a mismatch shows up as permission errors in the log. This matters on Linux, WSL2, and NAS devices; Docker Desktop on macOS and Windows usually handles file ownership for you. The values are built into the image, so after changing either one, run `docker compose up -d --build`.
 
 Every variable is described in [docs/CONFIG.md](docs/CONFIG.md).
 
@@ -164,17 +168,19 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-If you skipped the copies in Step 5, the bot makes them on first start. After you edit `config/models.yaml` or the instruction files later, run `/reload` in Discord to apply the changes without a restart.
+Wait until the log shows `Ready as ... in #your-channel`, then press Ctrl+C to stop following the log. The bot keeps running.
 
-When the log shows `Ready as ... in #your-channel`, type a message in the channel.
-
-To try the bot without API costs, set `MOCK_MODELS=1` in `.env` and run `docker compose up -d`. The models then return canned replies.
-
-To check that every API key and model ID works (a real call to each model, a few cents in total):
+Before your first real conversation, check that every API key and model ID works. This makes one real call to each enabled model, a few cents in total:
 
 ```bash
 docker compose exec waggle-dance python scripts/smoke_models.py
 ```
+
+Fix anything it reports as failed, then type a message in the channel.
+
+If you skipped the copies in Step 5, the bot makes them on first start. After you edit `config/models.yaml` or the instruction files later, run `/reload` in Discord to apply the changes without a restart.
+
+To try the bot without API costs, set `MOCK_MODELS=1` in `.env` and run `docker compose up -d`. The models then return canned replies.
 
 ### Updating
 

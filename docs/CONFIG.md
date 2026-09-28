@@ -26,7 +26,7 @@ waggle-dance reads three kinds of settings:
 | `AUTO_CLOSE_HOURS` | no | `24` | Close the open conversation after this many hours without activity |
 | `MOCK_MODELS` | no | `0` | `1` replaces every model with canned replies, for testing without API costs |
 | `LOG_LEVEL` | no | `INFO` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
-| `APP_UID`, `APP_GID` | no | `1000` | User and group the container runs as. Match the owner of the project directory on the host. Changing these needs `docker compose up -d --build` |
+| `APP_UID`, `APP_GID` | no | `1000` | User and group the container runs as. Match the owner of the project directory on the host: `id -u` gives `APP_UID` and `id -g` gives `APP_GID`. Matters on Linux, WSL2, and NAS devices. Changing either needs `docker compose up -d --build` |
 | `TZ` | no | `UTC` | Time zone for the date the models are told, for example `America/Los_Angeles` |
 
 The key variable names are not fixed: each model's `api_key_env` in `models.yaml` names the variable it reads.

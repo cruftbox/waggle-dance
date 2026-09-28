@@ -4,7 +4,7 @@
 
 waggle-dance is a Discord bot that puts Claude, ChatGPT, Gemini, and Muse Spark in one channel to discuss whatever you post. You type a message, each model answers, and they respond to each other's points as you follow up. When you are done, one model writes up where they agree and disagree, and the transcript is saved as Markdown and PDF.
 
-It is built for one person or a small group in their own Discord server. Every model call costs the owner money, so only the Discord users you list can use it.
+It is built for one person or a small group in their own Discord server. Every model call costs the owner money, so only the Discord users you list can use it. Four AI models arguing on your dime is a privilege, not a public service.
 
 The name comes from honeybee scouts, which choose a new nest site by debating with waggle dances until a quorum agrees.
 
@@ -31,6 +31,8 @@ The name comes from honeybee scouts, which choose a new nest site by debating wi
 - API keys for Anthropic, OpenAI, Google Gemini, and Meta (Muse Spark). You can turn off any model you do not have a key for.
 
 Python is not required on the host. Everything runs in the container.
+
+Fair warning: setup is mostly paperwork. You will collect a Discord bot token, three kinds of Discord IDs, and API keys from four companies, each with its own console, its own billing page, and its own opinion about where the "Create key" button belongs. Set aside half an hour and some patience. You only have to do it once, and after that the bees do the arguing.
 
 ---
 
@@ -80,6 +82,8 @@ In Discord, go to **User Settings → Advanced** and turn on **Developer Mode**.
 | ChatGPT | [platform.openai.com](https://platform.openai.com) | `OPENAI_API_KEY` |
 | Gemini | [aistudio.google.com](https://aistudio.google.com) | `GEMINI_API_KEY` |
 | Muse Spark | [dev.meta.ai](https://dev.meta.ai) | `META_API_KEY` |
+
+Each vendor will want a payment method before it hands over a key. This is the point where the bees start costing money.
 
 Set a monthly spending limit in each vendor's console. The bot estimates costs, but only the vendors' limits actually stop spending.
 
@@ -192,6 +196,8 @@ These are estimates from real use with the default models, not quotes. Your cost
 | 7 to 14 follow-ups | $1.00 to $3.60 |
 
 Each round costs more than the last, because every model rereads the whole conversation. Long attachments and `/review` posts with many linked pages raise the cost of every call. Search counts vary widely: in one opening round a single Gemini call ran 45 searches, about $0.65, and the round cost $0.88.
+
+That is still cheaper than a panel of human experts, and these ones never talk over each other.
 
 `/cost` shows the running estimate. The bot posts a warning when a conversation's estimated spend would pass `session_cost_warning` in `config/models.yaml` ($5 by default). Estimates come from the token counts the APIs report and the prices in `models.yaml`, so keep those prices current. See [docs/PROVIDERS.md](docs/PROVIDERS.md).
 

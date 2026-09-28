@@ -6,11 +6,11 @@ Asking one AI model gets you one take. Getting four usually means four browser t
 
 waggle-dance is a Discord bot that puts Claude, ChatGPT, Gemini, and Muse Spark in one channel to discuss whatever you want to post about. You type a message, each model answers, and they respond to each other's points as you follow up. When you are done, one model writes up where they agree and disagree, and the transcript is saved as Markdown and PDF.
 
+The name comes from honeybee scouts, which choose a new nest site by debating with waggle dances until a quorum agrees.
+
 It lives in Discord because not everyone likes iMessage or endless email threads. A Discord channel keeps the whole conversation in one scrollable place, shows who said what, and works the same on a phone or a desktop.
 
 It is built for one person or a small group in their own Discord server. Every model call costs the owner money, so only the Discord users you list can use it.
-
-The name comes from honeybee scouts, which choose a new nest site by debating with waggle dances until a quorum agrees.
 
 <p align="center">
   <img src="docs/images/waggle-dance-example.png" alt="A question in the waggle-dance channel and Gemini's reply" width="617">

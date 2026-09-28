@@ -41,6 +41,11 @@ class WaggleBot(discord.Client):
         self.channel: discord.TextChannel | None = None
         self.webhook: discord.Webhook | None = None
         self._background: set[asyncio.Task] = set()
+        # Owner messages that arrived while a command was running, by session.
+        self._queued: dict[int, list[str]] = {}
+        self._closing: set[int] = set()
+        # Commands spawned per session, counted from before they take the session lock.
+        self._running: dict[int, int] = {}
         self._auto_close_task: asyncio.Task | None = None
 
     # Startup
@@ -81,19 +86,43 @@ class WaggleBot(discord.Client):
         task.add_done_callback(self._background.discard)
 
     def run_command(self, s: Session, work: Callable[[ChannelOutput], Awaitable]) -> None:
-        """Run a session command in the background, one at a time per session."""
+        """Run a session command in the background, one at a time per session.
+
+        Owner messages queued while it runs are answered with a follow-up round
+        before the session is released, so another command cannot slip in between.
+        """
         out = self.output()
+
+        async def work_then_queue():
+            await self._report_errors(s, work(out), out)
+            while messages := self._queued.pop(s.session_id, None):
+                for text in messages:
+                    self.orch.add_owner_message(s, text)
+                await self._report_errors(s, self.orch.follow_up(s, out), out)
 
         async def runner():
             try:
-                await self.orch.run(s.session_id, lambda: work(out))
+                await self.orch.run(s.session_id, work_then_queue)
             except Busy:
                 await out.post_status("Another command started first. Wait for it to finish.")
-            except Exception as exc:
-                log.exception("Command failed in session %s", s.session_id)
-                await out.post_status(f"Something went wrong: {type(exc).__name__}: {str(exc)[:300]}")
+            finally:
+                self._running[s.session_id] -= 1
+                if not self._running[s.session_id]:
+                    del self._running[s.session_id]
 
+        self._running[s.session_id] = self._running.get(s.session_id, 0) + 1
         self.spawn(runner())
+
+    def busy(self, s: Session) -> bool:
+        """True while a command holds the session or is about to."""
+        return self.orch.is_busy(s.session_id) or s.session_id in self._running
+
+    async def _report_errors(self, s: Session, work: Awaitable, out: ChannelOutput) -> None:
+        try:
+            await work
+        except Exception as exc:
+            log.exception("Command failed in session %s", s.session_id)
+            await out.post_status(f"Something went wrong: {type(exc).__name__}: {str(exc)[:300]}")
 
     # Starting and closing conversations
 
@@ -156,9 +185,14 @@ class WaggleBot(discord.Client):
         With announce, posts the closing record and attaches the Markdown and PDF exports.
         """
         out = self.output()
-        paths, _ = await self.orch.run(
-            s.session_id, lambda: self.orch.close(s, out, mode=mode, announce=announce)
-        )
+        self._closing.add(s.session_id)
+        try:
+            paths, _ = await self.orch.run(
+                s.session_id, lambda: self.orch.close(s, out, mode=mode, announce=announce)
+            )
+        finally:
+            self._closing.discard(s.session_id)
+        self._queued.pop(s.session_id, None)
         if announce:
             await self.channel.send(files=[discord.File(p, filename=p.name) for p in paths])
 
@@ -175,10 +209,15 @@ class WaggleBot(discord.Client):
             return
         if not message.content.strip():
             return
-        # Every model replies to a follow-up in turn. While a command is running,
-        # it is not recorded.
-        if self.orch.is_busy(s.session_id):
+        # Every model replies to a follow-up in turn. While the conversation is
+        # closing, the message is not recorded. While another command is running,
+        # it is queued and answered when that command finishes.
+        if s.session_id in self._closing:
             await message.add_reaction(WAIT)
+            return
+        if self.busy(s):
+            self._queued.setdefault(s.session_id, []).append(message.content.strip())
+            await message.add_reaction(SEEN)
             return
         self.orch.add_owner_message(s, message.content.strip())
         await message.add_reaction(SEEN)
@@ -226,7 +265,7 @@ class WaggleBot(discord.Client):
             return
         cutoff = datetime.now(timezone.utc) - timedelta(hours=self.settings.auto_close_hours)
         for s in list(self.orch.sessions.values()):
-            if self.orch.is_busy(s.session_id) or datetime.fromisoformat(s.last_activity) > cutoff:
+            if self.busy(s) or datetime.fromisoformat(s.last_activity) > cutoff:
                 continue
             log.info("Auto-closing idle conversation %s", s.session_id)
             try:

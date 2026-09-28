@@ -194,18 +194,36 @@ async def test_later_messages_are_follow_ups(orch):
     assert s.entries[4].text == "What about green tea?"
 
 
-async def test_follow_up_while_busy_is_not_recorded(orch):
+async def test_messages_during_a_round_are_queued_and_answered_together(orch):
+    bot = make_bot(orch)
+    await bot.on_message(FakeMessage("Topic"))
+    s = orch.current()
+    # The opening round is still running.
+    first, second = FakeMessage("one more thing"), FakeMessage("and another")
+    await bot.on_message(first)
+    await bot.on_message(second)
+    assert first.reactions == second.reactions == [EYES]
+    assert all(e.text != "one more thing" for e in s.entries)
+    await settle(bot)
+    assert [e.text for e in s.entries if e.kind == "owner"] == ["one more thing", "and another"]
+    # One follow-up round after the opening round answers both messages.
+    assert [e.phase for e in s.entries].count("reply") == len(s.models)
+    last_owner = max(i for i, e in enumerate(s.entries) if e.kind == "owner")
+    assert [e.phase for e in s.entries[last_owner + 1:]] == ["reply"] * len(s.models)
+    assert not bot._queued
+
+
+async def test_message_while_closing_is_not_recorded(orch):
     bot = make_bot(orch)
     await bot.on_message(FakeMessage("Topic"))
     await settle(bot)
     s = orch.current()
-    lock = orch._locks.setdefault(s.session_id, asyncio.Lock())
-    await lock.acquire()
+    bot._closing.add(s.session_id)
     late = FakeMessage("one more thing")
     await bot.on_message(late)
-    lock.release()
     assert late.reactions == ["\N{HOURGLASS WITH FLOWING SAND}"]
     assert all(e.text != "one more thing" for e in s.entries)
+    assert not bot._queued
 
 
 async def test_first_message_with_attachment_uses_it_as_material(orch):

@@ -31,6 +31,8 @@ def setup_logging(level: str) -> None:
     # HTTP client loggers can include request details at INFO. Keep them quiet.
     for name in ("httpx", "httpx2", "httpcore", "openai", "anthropic", "google_genai"):
         logging.getLogger(name).setLevel(logging.WARNING)
+    # fontTools logs every font table it subsets while fpdf2 builds a PDF.
+    logging.getLogger("fontTools").setLevel(logging.WARNING)
 
 
 def main() -> int:

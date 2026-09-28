@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 
 HELP = """**waggle-dance**
 
-Type a message in this channel to start a conversation, or to follow up on the open one. Every model replies to a follow-up, one after another. The bot reacts with an eyes emoji when it records your message, or an hourglass if it is busy and the message was not recorded. Attach a .txt, .md, or .pdf to the first message to include it.
+Type a message in this channel to start a conversation, or to follow up on the open one. Every model replies to a follow-up, one after another. The bot reacts with an eyes emoji when it records your message. A message sent while the models are still replying is answered when they finish. An hourglass means the conversation was closing and the message was not recorded. Attach a .txt, .md, or .pdf to the first message to include it.
 
 Start a new conversation (closes the open one):
 `/new [topic]` start fresh, optionally with a topic
@@ -78,7 +78,7 @@ def register(bot: "WaggleBot") -> None:
         return s
 
     async def free(interaction: discord.Interaction, s: Session) -> bool:
-        if orch.is_busy(s.session_id):
+        if bot.busy(s):
             await respond(interaction, "Busy with another command. Wait for it to finish.")
             return False
         return True

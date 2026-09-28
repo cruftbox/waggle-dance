@@ -185,9 +185,10 @@ To try the bot without API costs, set `MOCK_MODELS=1` in `.env` and run `docker 
 ### Updating
 
 ```bash
-git pull
-docker compose up -d --build
+./update.sh
 ```
+
+It pulls the latest code, rebuilds the image, and restarts the container. On a QNAP NAS, where Container Station keeps `docker` off the SSH path, it finds Docker on its own. The manual equivalent is `git pull` followed by `docker compose up -d --build`.
 
 After editing `.env`, run `docker compose up -d`. A plain `docker compose restart` does not reread `.env`.
 

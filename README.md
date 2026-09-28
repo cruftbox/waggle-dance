@@ -51,19 +51,19 @@ Fair warning: setup is mostly paperwork. You will collect a Discord bot token, t
 
 ---
 
-## 1. Create the Discord bot
+## Step 1: Create the Discord bot
 
 1. Go to [https://discord.com/developers/applications](https://discord.com/developers/applications).
 2. Click **New Application** and name it (for example "waggle-dance").
 3. Open the **Bot** tab.
-4. Click **Reset Token** and copy the token. You need it in step 5.
+4. Click **Reset Token** and copy the token. You need it in Step 5.
 5. Under **Privileged Gateway Intents**, turn on **Message Content Intent**.
 
-   **This is required.** Without it the bot receives your messages with empty text and cannot start or follow up on conversations. Slash commands still work, which makes the problem easy to miss.
+   **This is required.** Without it Discord refuses the bot's connection and the bot does not run. The slash commands still appear in Discord, but they fail with "The application did not respond", and the log shows `PrivilegedIntentsRequired`.
 
 ---
 
-## 2. Invite the bot to your server
+## Step 2: Invite the bot to your server
 
 1. In the Developer Portal, open your application and go to **OAuth2 → URL Generator**.
 2. Under **Scopes**, select `bot` and `applications.commands`. Both are required.
@@ -79,7 +79,7 @@ Fair warning: setup is mostly paperwork. You will collect a Discord bot token, t
 
 ---
 
-## 3. Get the Discord IDs
+## Step 3: Get the Discord IDs
 
 In Discord, go to **User Settings → Advanced** and turn on **Developer Mode**. Then:
 
@@ -89,7 +89,7 @@ In Discord, go to **User Settings → Advanced** and turn on **Developer Mode**.
 
 ---
 
-## 4. Get the API keys
+## Step 4: Get the API keys
 
 | Model | Where to get a key | `.env` variable |
 |---|---|---|
@@ -102,19 +102,23 @@ Each vendor will want a payment method before it hands over a key. This is the p
 
 Set a monthly spending limit in each vendor's console. The bot estimates costs, but only the vendors' limits actually stop spending.
 
-To run without a model, set `enabled: false` for it in `config/models.yaml` (see step 6) and leave its key empty.
+You do not need all four. To leave a model out, skip its key here and turn it off in Step 5.
 
 ---
 
-## 5. Clone and configure
+## Step 5: Clone and configure
 
 ```bash
 git clone https://github.com/cruftbox/waggle-dance.git
 cd waggle-dance
 cp .env.example .env
+cp config/models.example.yaml config/models.yaml
+cp instructions/shared.example.md instructions/shared.md
 ```
 
-Open `.env` and fill in the values:
+These three copies are yours to edit. None of them is tracked by git, so `git pull` never overwrites them.
+
+### Fill in `.env`
 
 ```env
 DISCORD_TOKEN=your-bot-token
@@ -135,16 +139,32 @@ TZ=America/Los_Angeles
 
 Every variable is described in [docs/CONFIG.md](docs/CONFIG.md).
 
+### Choose the models
+
+Open `config/models.yaml`. For any model you do not have a key for, set `enabled: false` and leave its key in `.env` empty:
+
+```yaml
+models:
+  gemini:
+    enabled: false
+```
+
+The same file sets each model's ID and prices, the reply length limit (`max_reply_chars`), and the spend warning. Every field is described in [docs/CONFIG.md](docs/CONFIG.md#configmodelsyaml).
+
+### Write your instructions (optional)
+
+`instructions/shared.md` is added to every model's system prompt. Use it to say who you are and what you want from the discussion. To give one model extra instructions, create `instructions/models/<key>.md`, for example `instructions/models/claude.md`.
+
 ---
 
-## 6. Start waggle-dance
+## Step 6: Start waggle-dance
 
 ```bash
 docker compose up -d --build
 docker compose logs -f
 ```
 
-On first start the bot copies `config/models.example.yaml` to `config/models.yaml` and `instructions/shared.example.md` to `instructions/shared.md`. Edit those copies to change models, prices, reply length, or the instructions every model gets, then run `/reload` in Discord.
+If you skipped the copies in Step 5, the bot makes them on first start. After you edit `config/models.yaml` or the instruction files later, run `/reload` in Discord to apply the changes without a restart.
 
 When the log shows `Ready as ... in #your-channel`, type a message in the channel.
 
@@ -164,6 +184,20 @@ docker compose up -d --build
 ```
 
 After editing `.env`, run `docker compose up -d`. A plain `docker compose restart` does not reread `.env`.
+
+---
+
+## Troubleshooting
+
+Start with `docker compose logs --tail 50`. Most problems show up there.
+
+- **Slash commands fail with "The application did not respond".** The bot is not running. If the log shows `PrivilegedIntentsRequired`, turn on the **Message Content Intent** (Step 1). If it shows `Config error`, fix the setting it names in `.env` or `config/models.yaml`, then run `docker compose up -d`.
+- **Slash commands do not appear at all.** The invite was missing the `applications.commands` scope, or `DISCORD_GUILD_ID` is not your server. Reinvite the bot with both scopes (Step 2), or fix the ID and run `docker compose up -d`. Discord can take a minute to show new commands; restarting the Discord app helps.
+- **A slash command replies "Use waggle-dance in #..."** `DISCORD_CHANNEL_ID` points at a different channel than the one you are typing in. The reply links to the channel the bot is set to.
+- **A slash command replies that you are not on the list.** Your Discord user ID is not in `ALLOWED_USER_IDS`. Plain messages from you are ignored for the same reason.
+- **A plain message gets no 👀 and no reply.** Check the two items above: the wrong channel or a user ID missing from `ALLOWED_USER_IDS` both cause this, and running any slash command in the channel tells you which. If a conversation is already open, the message may have been only a file or a long paste, which follow-ups ignore (see [Files, long text, and links](#files-long-text-and-links)).
+- **A message gets ⏳.** The conversation was closing when you sent it, so it was not recorded. Send it again.
+- **The channel shows "*Model* failed: ..."** That model's call failed and the round went on without it. A timeout is usually a slow search and passes on its own. An authentication or "model not found" error means a wrong key or model ID. Run the smoke test from Step 6 to check each model.
 
 ---
 

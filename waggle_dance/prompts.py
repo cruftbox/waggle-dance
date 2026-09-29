@@ -39,7 +39,8 @@ def discussion_rules(
         lines.append(
             "Web search is on. Use it to check facts, not to supply your argument; build the argument yourself "
             "instead of summarizing results. Cite a source for specific facts you rely on, such as dates, names, "
-            "figures, prices, and current events. Your reasoning and interpretation don't need citations."
+            "figures, prices, and current events. Your reasoning and interpretation don't need citations. "
+            "When a message includes a link, open it and read the page before you reply."
         )
     else:
         lines.append("Web search is off for this session. Work from what you know and say when you are unsure.")

@@ -36,6 +36,7 @@ Findings:
 - Minimum cacheable prefix for Opus 5.5 is 512 tokens. Shorter prompts are not cached and no error is returned.
 - The cache the bot uses lasts 5 minutes. A follow-up more than 5 minutes after the last Claude call finds it expired and writes it again at the cache-write price, which is why `/cost` can show Claude with almost no plain input and no cached input: nearly all of its input is cache writes. `/cost` does not show cache writes as a column, but they are included in the dollar figure.
 - A long search can end with `stop_reason: "pause_turn"`. The provider sends the paused turn back unchanged, up to 3 times.
+- Opening links: web search alone cannot open a URL that search has not indexed, such as an unlisted draft. The config adds the web fetch tool (https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-fetch-tool) as `web_fetch_20260309` with `use_cache: false`, so a revised page at the same URL is read fresh. Claude can fetch only URLs that appear in the conversation. It cannot render pages that need JavaScript. Fetching has no charge beyond the page's tokens, and the code execution behind dynamic filtering is free when a `web_fetch_20260209` or later tool is in the request (checked 2026-09-28). Only the text after Claude's last tool call is posted, because Claude sometimes writes a note between tool calls.
 - A declined request ends with `stop_reason: "refusal"`. The config sets `fallbacks: default`, which asks the API to rerun a declined request on a fallback model it picks (beta `server-side-fallback-2026-07-01`). Set `fallbacks: null` to turn this off.
 
 ## ChatGPT (OpenAI)
@@ -79,7 +80,8 @@ Findings:
 - `gemini-3.8-flash` is the newest stable model. The only current Pro model is `gemini-3.1-pro-preview`, which is preview-only and older, so the config uses Flash.
 - Google made the Interactions API generally available in June 2026, recommends it for new projects, and calls `generateContent` legacy but still supported. The bot uses Interactions (`client.aio.interactions.create`) in stateless mode (`store=False`), with history sent as `user_input` and `model_output` steps.
 - System prompt: `system_instruction`. Output limit and thinking: `generation_config.max_output_tokens` and `generation_config.thinking_level` (`minimal`, `low`, `medium`, `high`; default `medium`). Thinking cannot be turned off, and thinking tokens count against `max_output_tokens` and are billed as output. The llm-discussion fix (`thinking_budget=0`) does not apply to Gemini 3; the bot sets a large `max_output_tokens` instead.
-- Web search: `{"type": "google_search"}`. Citations are `url_citation` annotations on text content. Usage reports searches in `grounding_tool_count`.
+- Web search: `{"type": "google_search"}`. Citations are `url_citation` annotations on text content. Usage reports searches in `grounding_tool_count`, whose entries carry a `type`; only `google_search` entries are counted as billed searches.
+- Opening links: Google Search cannot open an unindexed URL. The config adds the URL context tool (`{"type": "url_context"}`, https://ai.google.dev/gemini-api/docs/url-context), which works with the Interactions API alongside Google Search. Retrieved content is billed as input tokens. The Interactions API reports it in `total_tool_use_tokens`, separate from `total_input_tokens`, so the bot adds the two. The field is not split by tool, so if it also covers search content, estimates run slightly high.
 - Usage fields: `total_input_tokens`, `total_cached_tokens`, `total_output_tokens`, `total_thought_tokens`.
 - Prices are promotional through 2026-12-31 and double on 2027-01-01 (input $1.50, output $7.50, cached $0.15).
 - Search: 5,000 free queries per month shared across Gemini 3.x models, then $14 per 1,000. The cost estimate counts every search as paid.
@@ -98,6 +100,7 @@ Findings:
 - Meta serves Muse Spark on three protocols: Responses, Chat Completions, and an Anthropic-style Messages API.
 - Search grounding is available only on the Responses API. The docs state it is not available through Chat Completions. So Muse Spark uses the same Responses code as ChatGPT (`providers/openai.py`), with a different `base_url` and key.
 - Web search: `{"type": "web_search"}`. Results come back as `web_search_call` items and `url_citation` annotations, the same shapes as OpenAI.
+- Opening links: Meta's docs list no separate fetch tool, but in use on 2026-09-28 Muse Spark's web search opened an unlisted preview URL posted in a follow-up and cited it. ChatGPT did the same, through the `open_page` action OpenAI documents for web search on reasoning models.
 - Muse Spark always reasons. `reasoning.effort` accepts `minimal` through `max`; `none` returns a 400. Reasoning tokens count against `max_output_tokens`.
 - Prices (Standard tier): $1.25 input, $0.15 cached, $4.25 output per 1M tokens. Search costs $2.50 per 1,000 queries. A cheaper `muse-spark-1.3-contributor` tier lets Meta train on your prompts; the config does not use it.
 - Meta adds its own steering prompt to every request. Those tokens are not billed or reported.

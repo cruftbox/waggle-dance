@@ -62,6 +62,9 @@ class GeminiProvider:
         }
         if search:
             kwargs["tools"] = [{"type": "google_search"}]
+            if self.cfg.get("url_context"):
+                # Lets Gemini open links in the conversation, not just find pages by search.
+                kwargs["tools"].append({"type": "url_context"})
 
         resp = await with_retries(
             lambda: self.client.aio.interactions.create(**kwargs, timeout=self.timeout),
@@ -96,12 +99,19 @@ class GeminiProvider:
             raise ProviderError("returned no text")
 
         usage = resp.usage
-        total_in = (usage.total_input_tokens or 0) if usage else 0
+        # Content retrieved by tools, such as pages read with URL context, is
+        # reported separately and billed as input.
+        total_in = ((usage.total_input_tokens or 0) + (getattr(usage, "total_tool_use_tokens", 0) or 0)) if usage else 0
         cached = (usage.total_cached_tokens or 0) if usage else 0
         output = ((usage.total_output_tokens or 0) + (usage.total_thought_tokens or 0)) if usage else 0
         # Google bills each search query. grounding_tool_count reports them when
         # present; otherwise fall back to the number of search call steps.
-        counted = sum(getattr(g, "count", 0) or 0 for g in (usage.grounding_tool_count or [])) if usage else 0
+        # Other grounding tools are not billed per call, so only Google Search counts.
+        counted = sum(
+            getattr(g, "count", 0) or 0
+            for g in (usage.grounding_tool_count or [])
+            if getattr(g, "type", None) in (None, "google_search")
+        ) if usage else 0
         return Reply(
             text=text,
             citations=dedupe_citations(citations),

@@ -13,7 +13,7 @@ from .base import (
     with_retries,
 )
 
-# A long server-side search loop can stop with pause_turn. Resume a few times,
+# A long server-side search or fetch loop can stop with pause_turn. Resume a few times,
 # then give up rather than loop.
 MAX_CONTINUATIONS = 3
 
@@ -51,10 +51,7 @@ class AnthropicProvider:
         if self.cfg.get("effort"):
             kwargs["output_config"] = {"effort": self.cfg["effort"]}
         if search:
-            tool = {"type": self.cfg["search"]["tool"], "name": "web_search"}
-            if self.cfg["search"].get("max_uses"):
-                tool["max_uses"] = self.cfg["search"]["max_uses"]
-            kwargs["tools"] = [tool]
+            kwargs["tools"] = _web_tools(self.cfg)
         fallbacks = self.cfg.get("fallbacks")
 
         reply = Reply(text="")
@@ -80,6 +77,10 @@ class AnthropicProvider:
                     for c in getattr(block, "citations", None) or []:
                         if getattr(c, "type", "") == "web_search_result_location":
                             citations.append({"title": c.title, "url": c.url})
+                elif block.type not in ("thinking", "redacted_thinking"):
+                    # A tool call or result. Text before it is narration between
+                    # searches and fetches, not the answer, so start over.
+                    text_parts, citations = [], []
             if resp.stop_reason == "pause_turn":
                 # Send the paused turn back unchanged; the server resumes it.
                 kwargs["messages"] = kwargs["messages"] + [
@@ -99,6 +100,22 @@ class AnthropicProvider:
         if not reply.text:
             raise ProviderError("returned no text")
         return reply
+
+
+def _web_tools(cfg: dict) -> list[dict]:
+    """Web search, plus web fetch when configured so Claude can open links in the conversation."""
+    search = {"type": cfg["search"]["tool"], "name": "web_search"}
+    if cfg["search"].get("max_uses"):
+        search["max_uses"] = cfg["search"]["max_uses"]
+    tools = [search]
+    fetch = cfg.get("fetch") or {}
+    if fetch.get("tool"):
+        tool = {"type": fetch["tool"], "name": "web_fetch"}
+        for field in ("max_uses", "max_content_tokens", "use_cache"):
+            if fetch.get(field) is not None:
+                tool[field] = fetch[field]
+        tools.append(tool)
+    return tools
 
 
 def _add_usage(reply: Reply, usage) -> None:

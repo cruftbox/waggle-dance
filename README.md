@@ -24,7 +24,7 @@ It is built for one person or a small group in their own Discord server. Every m
 - A plain message in the channel starts a conversation when none is open. Attach a `.txt`, `.md`, or `.pdf` file to that first message to include it.
 - Later plain messages are follow-ups. Every model replies to each one in turn, and each sees the replies posted before its own.
 - In the opening round, the models answer without seeing each other, so no model anchors on another's first take.
-- Web search is on for every model, and models cite sources for specific facts.
+- Web search is on for every model, and models cite sources for specific facts. They can also open links you post.
 - The bot reacts with 👀 when it records your message. A message sent while the models are still replying is held and answered when they finish. ⏳ means the conversation was closing and the message was not recorded.
 - One conversation is open at a time. It closes when you run `/close` or `/summarize`, when you start a new one, or after 24 hours without activity.
 
@@ -35,7 +35,7 @@ It is built for one person or a small group in their own Discord server. Every m
 
 - **Long pastes become files.** Discord turns any paste over 2,000 characters (4,000 with Nitro) into a `message.txt` attachment with no message text. Pasted into an open conversation, it is ignored like any other file. To discuss a long document, run `/new` first, then paste or drag it in as the first message.
 - **Only `.txt`, `.md`, and `.pdf` files are read.** Add a line of text to the same message to say what you want the models to do with the file.
-- **A plain message does not open links.** The models only see what web search finds, which may not include a page that is new, private, or behind a login. To have the bot read a page and give its text to every model, use `/review url`.
+- **Links in a message are opened by the models themselves.** Post a link in any message, including a follow-up, and each model opens it with its own web tools: web fetch for Claude, URL context for Gemini, and the search tools of ChatGPT and Muse Spark. The models decide when to open a page, so this is reliable but not guaranteed, and none of them can open a page behind a login or one that needs JavaScript to show its text. Each model reads the page again when it needs it; the page text is not kept in the conversation. `/review url` is different: the bot reads the post and the pages it links to, and gives that text to every model as part of the conversation.
 
 ---
 

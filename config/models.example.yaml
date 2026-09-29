@@ -45,6 +45,14 @@ models:
       # input tokens.
       tool: web_search_20250305
       max_uses: 5
+    # Lets Claude open links posted in the conversation. Remove this block to
+    # turn it off. use_cache: false fetches the current page, so a revised
+    # draft at the same URL is not served from Anthropic's cache; it needs
+    # web_fetch_20260309 or later. Fetching costs only the page's tokens.
+    fetch:
+      tool: web_fetch_20260309
+      max_uses: 3
+      use_cache: false
     prices:
       input: 4.00
       output: 20.00
@@ -83,6 +91,9 @@ models:
     max_tokens: 16000
     # Optional: minimal, low, medium, high. Omit for the model default (medium).
     thinking_level: null
+    # Lets Gemini open links posted in the conversation (Google's URL context
+    # tool). Page content is billed as input tokens.
+    url_context: true
     prices:
       # Promotional rates through 2026-12-31. They double on 2027-01-01
       # (1.50 / 7.50 / 0.15).

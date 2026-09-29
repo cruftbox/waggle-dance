@@ -68,8 +68,13 @@ Each entry under `models:` has a key (`claude`, `chatgpt`, `gemini`, `muse`). Th
 | `fallbacks` | `anthropic` | `default` lets Anthropic rerun a declined request on a fallback model. `null` turns this off |
 | `search.tool` | `anthropic` | Required. The web search tool version, for example `web_search_20250305` |
 | `search.max_uses` | `anthropic` | Most searches per call |
+| `fetch.tool` | `anthropic` | The web fetch tool version, which lets Claude open links in the conversation. Leave out the `fetch` block to turn it off. `web_fetch_20260309` or later is needed for `use_cache` |
+| `fetch.max_uses` | `anthropic` | Most page fetches per call |
+| `fetch.use_cache` | `anthropic` | `false` always fetches the current page instead of Anthropic's cached copy, so a revised draft at the same URL is read fresh |
+| `fetch.max_content_tokens` | `anthropic` | Optional cap on how much of a fetched page Claude reads, in tokens |
 | `reasoning_effort` | `openai_responses` | Passed to the API as `reasoning.effort`. `null` uses the model default |
 | `thinking_level` | `gemini` | `minimal`, `low`, `medium`, or `high`. `null` uses the model default |
+| `url_context` | `gemini` | `true` adds Google's URL context tool, which lets Gemini open links in the conversation |
 | `prices.input` | all | Dollars per million uncached input tokens |
 | `prices.cached_input` | all | Dollars per million cached input tokens |
 | `prices.cache_write` | `anthropic` | Dollars per million tokens written to Anthropic's prompt cache. Defaults to `prices.input` |

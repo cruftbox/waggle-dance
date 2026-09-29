@@ -87,20 +87,23 @@ FOLLOW_UP = (
     "above, respond to their points as well instead of repeating them."
 )
 
+RECAP = "Begin with one sentence that recaps the question or issue being discussed. "
+RECAP_REVIEW = "Begin with one sentence that names the post being reviewed and what it argues. "
+
 DISAGREE = (
-    "List only the points where the participants disagree. For each point, say who holds which position, "
+    RECAP + "Then list only the points where the participants disagree. For each point, say who holds which position, "
     "attributed by name. Skip everything they agree on. If there are no real disagreements, say so in one sentence."
 )
 
 CONSENSUS = {
     "discuss": (
-        "You are writing the outcome of this discussion. Give: the key points raised, where the participants agree, "
+        "You are writing the outcome of this discussion. " + RECAP + "Then give: the key points raised, where the participants agree, "
         "where they still disagree, and a synthesized answer to the original topic where one is possible. "
         "Be direct and concise."
     ),
     "review": (
         "You are writing the final edit list for this review of a personal weblog post, as an experienced blog "
-        "editor would. Merge the edits the participants proposed into one deduplicated list of at most five, most "
+        "editor would. " + RECAP_REVIEW + "Then merge the edits the participants proposed into one deduplicated list of at most five, most "
         "important first. For each edit, quote the passage, give the change, and note which participants raised it. "
         "Drop edits that later discussion rejected, and edits that ask for academic rigor a blog post does not need."
     ),

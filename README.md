@@ -243,7 +243,7 @@ Conversations, messages, and usage are stored in `data/waggle.db` (SQLite). An o
 
 ## Costs
 
-These are estimates from real use with the default models, not quotes. Your costs depend on the models you configure, how long the conversation runs, and how much the models search.
+These are estimates from real use with the default models, not quotes. Your costs depend on the models you configure, how long the conversation runs, and how much the models search. Most conversations run two or three rounds.
 
 | Conversation | Typical estimated cost |
 |---|---|
@@ -251,7 +251,7 @@ These are estimates from real use with the default models, not quotes. Your cost
 | 1 to 5 follow-ups | $0.10 to $1.00 |
 | 7 to 14 follow-ups | $1.00 to $3.60 |
 
-Each round costs more than the last, because every model rereads the whole conversation. Long attachments and `/review` posts with many linked pages raise the cost of every call. Search counts vary widely: in one opening round a single Gemini call ran 45 searches, about $0.65, and the round cost $0.88.
+Each round costs more than the last, because every model rereads the whole conversation. Long attachments and `/review` posts with many linked pages raise the cost of every call. Search counts vary widely and can push a round well past these ranges: in one unusual opening round a single Gemini call ran 45 searches, about $0.65, and the round cost $0.88.
 
 That is still cheaper than a panel of human experts, and these ones never talk over each other.
 

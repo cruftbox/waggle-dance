@@ -24,6 +24,7 @@ MODEL_INSTRUCTIONS_DIR = ROOT / "instructions" / "models"
 DATA_DIR = ROOT / "data"
 DB_PATH = DATA_DIR / "waggle.db"
 EXPORTS_DIR = DATA_DIR / "exports"
+IMAGES_DIR = DATA_DIR / "images"
 
 PROVIDER_TYPES = {"anthropic", "openai_responses", "gemini"}
 MODEL_KEYS = ("claude", "chatgpt", "gemini", "muse")

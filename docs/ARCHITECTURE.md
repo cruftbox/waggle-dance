@@ -25,9 +25,9 @@ The orchestrator posts through an `Output` interface. The bot implements it with
 
 ## A conversation
 
-1. **Start.** With no conversation open, a plain message from an allowed user in the channel starts one. The message text is the topic, and any attached files become the submission. `/new topic` and `/review url` start one the same way. Starting a conversation closes any open one first.
+1. **Start.** With no conversation open, a plain message from an allowed user in the channel starts one. The message text is the topic, and any attached files become the submission. Attached images go with the submission. `/new topic` and `/review url` start one the same way. Starting a conversation closes any open one first.
 2. **Opening round.** Every enabled model answers the submission at the same time. Each model's view is built before any call starts, so none sees another's answer. This keeps the first takes independent: a model that sees an answer first tends to agree with it or argue against it, instead of forming its own view.
-3. **Follow-ups.** Each later plain message from the owner is added to the transcript, and the models reply one after another. Each model sees every reply posted before its own, so later models respond to earlier ones. The first speaker rotates with each follow-up so no model always goes first or last.
+3. **Follow-ups.** Each later plain message from the owner, with any images, is added to the transcript, and the models reply one after another. Each model sees every reply posted before its own, so later models respond to earlier ones. The first speaker rotates with each follow-up so no model always goes first or last.
 4. **Commands.** `/disagree`, `/vote`, and `/consensus` add their output to the same transcript, so the models can refer to it later.
 5. **Close.** `/close`, `/summarize`, `/new`, or 24 hours without activity mark the conversation closed, write the Markdown and PDF exports to `data/exports/`, and drop it from memory. `/summarize` first runs a consensus and then posts the closing note and the files.
 
@@ -65,9 +65,11 @@ For `/vote`, the chosen model lists the candidate positions (or proposed edits, 
 `data/waggle.db` has four tables:
 
 - `sessions`: one row per conversation, with its topic, submission, settings, status, and timestamps.
-- `entries`: every transcript entry, with citations and the Discord message IDs it was posted as.
+- `entries`: every transcript entry, with citations, image file names, and the Discord message IDs it was posted as.
 - `usage`: one row per model call, with token counts, search count, and estimated cost.
 - `meta`: counters, including the summarizer rotation.
+
+Images the owner posts are saved in `data/images/<conversation ID>/`. Each model call reads them from there and sends them again, because every call carries the whole conversation.
 
 At startup, the open conversation is loaded back from the database and continues where it left off.
 

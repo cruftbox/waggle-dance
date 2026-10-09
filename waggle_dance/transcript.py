@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Callable
 
 OWNER = "owner"
 MODERATOR = "moderator"
@@ -25,6 +26,7 @@ class Entry:
     citations: list[dict] = field(default_factory=list)
     message_ids: list[int] = field(default_factory=list)
     created: str = field(default_factory=now_iso)
+    images: list[str] = field(default_factory=list)  # file names in the session's image folder
 
 
 def label(entry: Entry, display_names: dict[str, str], owner_name: str) -> str:
@@ -42,6 +44,8 @@ def build_view(
     instruction: str,
     display_names: dict[str, str],
     owner_name: str,
+    submission_images: list[str] | None = None,
+    image_part: Callable[[str], dict] | None = None,
 ) -> tuple[list[dict], list[int]]:
     """Return (messages, cache_breakpoints) for one model turn.
 
@@ -50,14 +54,23 @@ def build_view(
     is a user message prefixed with the speaker. Providers merge consecutive
     user messages. Breakpoints mark the submission and the end of the
     transcript for Anthropic prompt caching.
+
+    A message with images has a list of parts as its content: a text part,
+    then one image part per image, built by image_part from the file name.
     """
-    messages = [{"role": "user", "content": submission_block}]
+
+    def content(text: str, images: list[str]):
+        if not images or image_part is None:
+            return text
+        return [{"type": "text", "text": text}] + [image_part(name) for name in images]
+
+    messages = [{"role": "user", "content": content(submission_block, submission_images or [])}]
     for e in entries:
         if e.kind == "model" and e.speaker == model_key:
             messages.append({"role": "assistant", "content": e.text})
         else:
             who = label(e, display_names, owner_name)
-            messages.append({"role": "user", "content": f"[{who}]: {e.text}"})
+            messages.append({"role": "user", "content": content(f"[{who}]: {e.text}", e.images)})
     breakpoints = [0]
     if len(messages) > 1:
         breakpoints.append(len(messages) - 1)

@@ -7,6 +7,7 @@ object, which the bot implements with webhooks and tests implement with lists.
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import re
 from contextlib import AbstractAsyncContextManager
@@ -24,6 +25,8 @@ from .voting import VoteError, borda, parse_ballot, parse_candidates, tally_text
 log = logging.getLogger(__name__)
 
 MODES = ("review", "discuss")
+# Image types every provider accepts, by file extension.
+IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
 
 
 class Busy(Exception):
@@ -49,6 +52,7 @@ class Session:
     models: list[str]
     search: bool
     status: str = "open"
+    images: list[str] = field(default_factory=list)  # images sent with the first message
     entries: list[Entry] = field(default_factory=list)
     consensus_seq: int | None = None  # seq of the latest consensus entry
     created: str = field(default_factory=now_iso)
@@ -59,6 +63,7 @@ class Session:
             "models": self.models,
             "search": self.search,
             "consensus_seq": self.consensus_seq,
+            "images": self.images,
         }
 
     def next_seq(self) -> int:
@@ -67,13 +72,14 @@ class Session:
 
 class Orchestrator:
     def __init__(self, cfg: dict, providers: dict[str, Provider], store: Store, instructions: dict,
-                 owner_name: str, exports_dir: Path):
+                 owner_name: str, exports_dir: Path, images_dir: Path | None = None):
         self.cfg = cfg
         self.providers = providers
         self.store = store
         self.instructions = instructions
         self.owner_name = owner_name
         self.exports_dir = Path(exports_dir)
+        self.images_dir = Path(images_dir) if images_dir else self.exports_dir.parent / "images"
         self.sessions: dict[int, Session] = {}
         self._locks: dict[int, asyncio.Lock] = {}
 
@@ -106,11 +112,12 @@ class Orchestrator:
     # Sessions
 
     def create_session(self, session_id: int, mode: str, topic: str, title: str, submission: str,
-                       constraints: str, models: list[str], search: bool) -> Session:
+                       constraints: str, models: list[str], search: bool,
+                       images: list[str] | None = None) -> Session:
         if mode not in MODES:
             raise ValueError(f"unknown mode {mode}")
         s = Session(session_id=session_id, mode=mode, topic=topic, title=title, submission=submission,
-                    constraints=constraints, models=models, search=search)
+                    constraints=constraints, models=models, search=search, images=list(images or []))
         self.store.create_session(session_id, mode, topic, title, submission, constraints, s.settings())
         self.sessions[session_id] = s
         return s
@@ -130,7 +137,8 @@ class Orchestrator:
         return Session(
             session_id=session_id, mode=row["mode"], topic=row["topic"], title=row["title"],
             submission=row["submission"], constraints=row["constraints"], models=st.get("models", []),
-            search=bool(st.get("search")), status=row["status"], entries=row["entries"],
+            search=bool(st.get("search")), status=row["status"], images=st.get("images", []),
+            entries=row["entries"],
             consensus_seq=st.get("consensus_seq"),
             created=row["created"], last_activity=row["last_activity"],
         )
@@ -153,9 +161,22 @@ class Orchestrator:
         self.store.add_entry(s.session_id, e)
         return e
 
-    def add_owner_message(self, s: Session, text: str) -> Entry:
+    def add_owner_message(self, s: Session, text: str, images: list[str] | None = None) -> Entry:
         return self._append(s, Entry(seq=s.next_seq(), speaker=OWNER, kind="owner", phase="owner",
-                                     round=0, text=text))
+                                     round=0, text=text, images=list(images or [])))
+
+    # Images
+
+    def save_image(self, session_id: int, name: str, data: bytes) -> None:
+        """Keep an image the owner posted, so every later turn can send it again."""
+        folder = self.images_dir / str(session_id)
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_bytes(data)
+
+    def _image_part(self, session_id: int, name: str) -> dict:
+        data = (self.images_dir / str(session_id) / name).read_bytes()
+        return {"type": "image", "media_type": IMAGE_TYPES[Path(name).suffix],
+                "data": base64.standard_b64encode(data).decode("ascii")}
 
     # Running commands one at a time per session
 
@@ -175,7 +196,8 @@ class Orchestrator:
 
     def view(self, s: Session, key: str, instruction: str) -> tuple[list[dict], list[int]]:
         block = prompts.submission_message(s.mode, s.topic, s.submission, s.constraints, self.owner_name)
-        return build_view(key, block, s.entries, instruction, self.names(), self.owner_name)
+        return build_view(key, block, s.entries, instruction, self.names(), self.owner_name, s.images,
+                          lambda name: self._image_part(s.session_id, name))
 
     async def _generate(self, s: Session, key: str, messages: list[dict], breakpoints: list[int]) -> Reply:
         provider = self.providers[key]
@@ -417,13 +439,14 @@ class Orchestrator:
             "",
             s.submission,
         ]
+        lines += _image_lines(s.images)
         if s.constraints:
             lines += ["", "## Context and constraints", "", s.constraints]
         lines += ["", "## Transcript"]
         for e in s.entries:
             who = self.owner_name if e.kind == "owner" else "Moderator" if e.kind == "system" else names.get(
                 e.speaker, e.speaker)
-            lines += ["", f"### {who} ({e.phase})", "", e.text]
+            lines += ["", f"### {who} ({e.phase})", "", e.text] + _image_lines(e.images)
             if e.citations:
                 lines += ["", "Sources:", ""] + [f"- [{c['title']}]({c['url']})" for c in e.citations]
         lines += ["", "## Cost", "", self.cost_report(s), ""]
@@ -493,6 +516,10 @@ def _error_text(exc: Exception) -> str:
         return "timed out"
     msg = str(exc).replace("\n", " ")
     return f"{type(exc).__name__}: {msg[:300]}"
+
+
+def _image_lines(images: list[str]) -> list[str]:
+    return [""] + [f"[image: {name}]" for name in images] if images else []
 
 
 def _slug(text: str) -> str:

@@ -25,6 +25,17 @@ def _retryable(exc: Exception) -> bool:
     return isinstance(exc, openai.APIStatusError) and status_is_retryable(exc.status_code)
 
 
+def _content(content):
+    """Text stays a string; text and image parts become Responses input parts."""
+    if isinstance(content, str):
+        return content
+    return [
+        {"type": "input_text", "text": p["text"]} if p["type"] == "text"
+        else {"type": "input_image", "image_url": f"data:{p['media_type']};base64,{p['data']}"}
+        for p in content
+    ]
+
+
 class ResponsesProvider:
     def __init__(self, key: str, cfg: dict, api_key: str, timeout: float):
         self.key = key
@@ -41,7 +52,7 @@ class ResponsesProvider:
         # Both OpenAI and Meta cache repeated prefixes automatically, so
         # cache_breakpoints is ignored here.
         items = [{"role": "developer", "content": system}]
-        items += normalize_messages(messages)
+        items += [{"role": m["role"], "content": _content(m["content"])} for m in normalize_messages(messages)]
         kwargs: dict = {
             "model": self.cfg["model"],
             "input": items,

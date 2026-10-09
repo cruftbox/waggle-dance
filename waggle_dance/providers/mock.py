@@ -7,7 +7,7 @@ import json
 import random
 import re
 
-from .base import Reply, normalize_messages
+from .base import Reply, normalize_messages, text_of
 
 
 class MockProvider:
@@ -20,7 +20,7 @@ class MockProvider:
         if self.delay:
             await asyncio.sleep(self.delay * random.uniform(0.5, 1.5))
         msgs = normalize_messages(messages)
-        last = msgs[-1]["content"] if msgs else ""
+        last = text_of(msgs[-1]["content"]) if msgs else ""
         if '"candidates"' in last:
             text = json.dumps({"candidates": ["Option A", "Option B", "Option C"]})
         elif '"ranking"' in last:

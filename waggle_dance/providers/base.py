@@ -47,10 +47,30 @@ class ProviderError(Exception):
 def normalize_messages(messages: list[dict]) -> list[dict]:
     """Merge consecutive same-role messages so roles alternate, starting with user.
 
-    Each input message is {"role": "user"|"assistant", "content": str}.
-    Empty messages are dropped. Merged contents are joined with a blank line.
+    Each input message is {"role": "user"|"assistant", "content": str or parts}.
+    Parts are {"type": "text", "text": str} and {"type": "image", "media_type": str,
+    "data": base64 str}. Empty messages are dropped. Merged text is joined with a
+    blank line; a merge that involves parts gives parts.
     """
     return normalize_with_breakpoints(messages, [])[0]
+
+
+def _parts(content) -> list[dict]:
+    return [{"type": "text", "text": content}] if isinstance(content, str) else list(content)
+
+
+def _merge(a, b):
+    if isinstance(a, str) and isinstance(b, str):
+        return a + "\n\n" + b
+    a, b = _parts(a), _parts(b)
+    if a and b and a[-1]["type"] == "text" and b[0]["type"] == "text":
+        return a[:-1] + [{"type": "text", "text": a[-1]["text"] + "\n\n" + b[0]["text"]}] + b[1:]
+    return a + b
+
+
+def text_of(content) -> str:
+    """The text of a message's content, without its images."""
+    return content if isinstance(content, str) else "\n\n".join(p["text"] for p in content if p["type"] == "text")
 
 
 def normalize_with_breakpoints(
@@ -68,12 +88,14 @@ def normalize_with_breakpoints(
         role = m["role"]
         if role not in ("user", "assistant"):
             raise ValueError(f"unknown role: {role}")
-        text = m["content"].strip()
-        if text:
+        content = m["content"]
+        if isinstance(content, str):
+            content = content.strip()
+        if content:
             if out and out[-1]["role"] == role:
-                out[-1]["content"] += "\n\n" + text
+                out[-1]["content"] = _merge(out[-1]["content"], content)
             else:
-                out.append({"role": role, "content": text})
+                out.append({"role": role, "content": content})
         if i in wanted and out:
             mapped.add(len(out) - 1)
     if out and out[0]["role"] == "assistant":

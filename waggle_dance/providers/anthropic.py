@@ -35,12 +35,10 @@ class AnthropicProvider:
 
     async def generate(self, system, messages, max_tokens, search, cache_breakpoints=None) -> Reply:
         msgs, marks = normalize_with_breakpoints(messages, cache_breakpoints)
+        msgs = [{"role": m["role"], "content": _blocks(m["content"])} for m in msgs]
         # The API allows at most 4 breakpoints; keep the latest ones.
         for i in marks[-4:]:
-            msgs[i] = {
-                "role": msgs[i]["role"],
-                "content": [{"type": "text", "text": msgs[i]["content"], "cache_control": {"type": "ephemeral"}}],
-            }
+            msgs[i]["content"][-1]["cache_control"] = {"type": "ephemeral"}
 
         kwargs: dict = {
             "model": self.cfg["model"],
@@ -100,6 +98,17 @@ class AnthropicProvider:
         if not reply.text:
             raise ProviderError("returned no text")
         return reply
+
+
+def _blocks(content) -> list[dict]:
+    """Text and image parts as Messages API content blocks."""
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    return [
+        {"type": "text", "text": p["text"]} if p["type"] == "text"
+        else {"type": "image", "source": {"type": "base64", "media_type": p["media_type"], "data": p["data"]}}
+        for p in content
+    ]
 
 
 def _web_tools(cfg: dict) -> list[dict]:

@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS entries (
     citations TEXT NOT NULL DEFAULT '[]',
     message_ids TEXT NOT NULL DEFAULT '[]',
     created TEXT NOT NULL,
+    images TEXT NOT NULL DEFAULT '[]',
     UNIQUE (session, seq)
 );
 CREATE TABLE IF NOT EXISTS usage (
@@ -70,6 +71,10 @@ class Store:
         columns = [r["name"] for r in self.db.execute("PRAGMA table_info(sessions)")]
         if "thread_id" in columns:
             self.db.execute("ALTER TABLE sessions RENAME COLUMN thread_id TO session_id")
+        # Images were added to entries after the first release.
+        columns = [r["name"] for r in self.db.execute("PRAGMA table_info(entries)")]
+        if "images" not in columns:
+            self.db.execute("ALTER TABLE entries ADD COLUMN images TEXT NOT NULL DEFAULT '[]'")
         self.db.commit()
 
     def close(self) -> None:
@@ -116,10 +121,10 @@ class Store:
 
     def add_entry(self, session_id: int, e: Entry) -> None:
         self.db.execute(
-            "INSERT INTO entries (session, seq, speaker, kind, phase, round, text, citations, message_ids, created) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO entries (session, seq, speaker, kind, phase, round, text, citations, message_ids, created, "
+            "images) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (session_id, e.seq, e.speaker, e.kind, e.phase, e.round, e.text,
-             json.dumps(e.citations), json.dumps(e.message_ids), e.created),
+             json.dumps(e.citations), json.dumps(e.message_ids), e.created, json.dumps(e.images)),
         )
         self.db.execute("UPDATE sessions SET last_activity = ? WHERE session_id = ?", (e.created, session_id))
         self.db.commit()
@@ -136,7 +141,7 @@ class Store:
         return [
             Entry(seq=r["seq"], speaker=r["speaker"], kind=r["kind"], phase=r["phase"], round=r["round"],
                   text=r["text"], citations=json.loads(r["citations"]), message_ids=json.loads(r["message_ids"]),
-                  created=r["created"])
+                  created=r["created"], images=json.loads(r["images"]))
             for r in rows
         ]
 

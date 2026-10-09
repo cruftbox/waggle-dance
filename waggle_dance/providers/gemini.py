@@ -34,9 +34,16 @@ def _retryable(exc: Exception) -> bool:
     return status_is_retryable(_status(exc))
 
 
-def _step(role: str, text: str) -> dict:
+def _step(role: str, content) -> dict:
     step_type = "user_input" if role == "user" else "model_output"
-    return {"type": step_type, "content": [{"type": "text", "text": text}]}
+    if isinstance(content, str):
+        return {"type": step_type, "content": [{"type": "text", "text": content}]}
+    blocks = [
+        {"type": "text", "text": p["text"]} if p["type"] == "text"
+        else {"type": "image", "data": p["data"], "mime_type": p["media_type"]}
+        for p in content
+    ]
+    return {"type": step_type, "content": blocks}
 
 
 class GeminiProvider:

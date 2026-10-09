@@ -46,8 +46,10 @@ class FakeChannel:
 
 
 class FakeAttachment:
-    def __init__(self, filename, data):
+    def __init__(self, filename, data, content_type=None, size=None):
         self.filename, self._data = filename, data
+        self.content_type = content_type
+        self.size = len(data) if size is None else size
 
     async def read(self):
         return self._data

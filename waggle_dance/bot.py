@@ -18,7 +18,7 @@ from discord import app_commands
 from . import commands, ingest
 from .config import Settings
 from .discord_io import MESSAGE_LIMIT, NO_MENTIONS, ChannelOutput, get_webhook, text_file
-from .orchestrator import Busy, Orchestrator, Session
+from .orchestrator import IMAGE_TYPES, Busy, Orchestrator, Session
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +27,10 @@ SEEN = "\N{EYES}"
 WAIT = "\N{HOURGLASS WITH FLOWING SAND}"
 MODE_LABELS = {"review": "Review request", "discuss": "Discussion"}
 FILE_EXTENSIONS = (".txt", ".md", ".markdown", ".pdf")
+# File extension for each image type the models accept.
+IMAGE_EXTENSIONS = {media_type: ext for ext, media_type in IMAGE_TYPES.items()}
+# Claude's API limit for one image.
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 
 class WaggleBot(discord.Client):
@@ -41,8 +45,8 @@ class WaggleBot(discord.Client):
         self.channel: discord.TextChannel | None = None
         self.webhook: discord.Webhook | None = None
         self._background: set[asyncio.Task] = set()
-        # Owner messages that arrived while a command was running, by session.
-        self._queued: dict[int, list[str]] = {}
+        # Owner messages (text, image names) that arrived while a command was running, by session.
+        self._queued: dict[int, list[tuple[str, list[str]]]] = {}
         self._closing: set[int] = set()
         # Commands spawned per session, counted from before they take the session lock.
         self._running: dict[int, int] = {}
@@ -96,8 +100,8 @@ class WaggleBot(discord.Client):
         async def work_then_queue():
             await self._report_errors(s, work(out), out)
             while messages := self._queued.pop(s.session_id, None):
-                for text in messages:
-                    self.orch.add_owner_message(s, text)
+                for text, images in messages:
+                    self.orch.add_owner_message(s, text, images)
                 await self._report_errors(s, self.orch.follow_up(s, out), out)
 
         async def runner():
@@ -128,7 +132,8 @@ class WaggleBot(discord.Client):
 
     async def start_session(self, session_id: int, mode: str, topic: str, submission: str, context: str,
                             models: list[str], search: bool, title_text: str, fallback: str,
-                            source_url: str | None = None, post_submission: bool = True, note: str = "") -> Session:
+                            source_url: str | None = None, post_submission: bool = True, note: str = "",
+                            images: list[str] | None = None) -> Session:
         """Close any open conversation, post the request, and start the opening round.
 
         post_submission is False when the request is the owner's own channel
@@ -145,7 +150,7 @@ class WaggleBot(discord.Client):
         if note:
             await self.output().post_status(note)
         s = self.orch.create_session(session_id, mode, topic, fallback[:100] or "Untitled", submission, context,
-                                     models, search)
+                                     models, search, images)
         self.run_command(s, lambda out: self.orch.opening(s, out))
         self.spawn(self._set_title(s, title_text, fallback))
         return s
@@ -207,7 +212,8 @@ class WaggleBot(discord.Client):
         if s is None:
             await self._discuss_from_message(message)
             return
-        if not message.content.strip():
+        text = message.content.strip()
+        if not text and not _image_attachments(message):
             return
         # Every model replies to a follow-up in turn. While the conversation is
         # closing, the message is not recorded. While another command is running,
@@ -215,11 +221,14 @@ class WaggleBot(discord.Client):
         if s.session_id in self._closing:
             await message.add_reaction(WAIT)
             return
+        images = await self._save_images(message, s.session_id)
+        if images is None:
+            return
         if self.busy(s):
-            self._queued.setdefault(s.session_id, []).append(message.content.strip())
+            self._queued.setdefault(s.session_id, []).append((text, images))
             await message.add_reaction(SEEN)
             return
-        self.orch.add_owner_message(s, message.content.strip())
+        self.orch.add_owner_message(s, text, images)
         await message.add_reaction(SEEN)
         self.run_command(s, lambda out: self.orch.follow_up(s, out))
 
@@ -227,7 +236,7 @@ class WaggleBot(discord.Client):
         """With no open conversation, a plain message starts one."""
         topic = message.content.strip()
         files = [a for a in message.attachments if a.filename.lower().endswith(FILE_EXTENSIONS)]
-        if not topic and not files:
+        if not topic and not files and not _image_attachments(message):
             return
         material = []
         try:
@@ -236,18 +245,41 @@ class WaggleBot(discord.Client):
         except ingest.IngestError as exc:
             await message.reply(f"Could not read that attachment: {exc}.", mention_author=False)
             return
-        if not topic:
+        images = await self._save_images(message, message.id)
+        if images is None:
+            return
+        if not topic and files:
             topic = f"Discuss the attached file{'s' if len(files) > 1 else ''}."
+        elif not topic:
+            topic = f"Discuss the attached image{'s' if len(images) > 1 else ''}."
         submission = "\n\n".join(material) if material else topic
         await message.add_reaction(SEEN)
         try:
             await self.start_session(message.id, "discuss", topic, submission, "", self.orch.enabled_keys(), True,
                                      topic if submission == topic else f"{topic}\n\n{submission}", topic,
-                                     post_submission=False)
+                                     post_submission=False, images=images)
         except Exception as exc:
             log.exception("Could not start a conversation from message %s", message.id)
             await message.reply(f"Could not start a discussion: {type(exc).__name__}: {str(exc)[:300]}",
                                 mention_author=False)
+
+    async def _save_images(self, message: discord.Message, session_id: int) -> list[str] | None:
+        """Save the message's images for the session and return their file names.
+
+        Replies and returns None if an image is too large for the models.
+        """
+        attachments = _image_attachments(message)
+        for a in attachments:
+            if a.size > MAX_IMAGE_BYTES:
+                await message.reply(f"Could not use {a.filename}: images over 5 MB are not supported.",
+                                    mention_author=False)
+                return None
+        names = []
+        for i, a in enumerate(attachments, 1):
+            name = f"{message.id}-{i}{IMAGE_EXTENSIONS[_media_type(a)]}"
+            self.orch.save_image(session_id, name, await a.read())
+            names.append(name)
+        return names
 
     # Auto-close
 
@@ -281,3 +313,16 @@ class WaggleBot(discord.Client):
         if self._auto_close_task:
             self._auto_close_task.cancel()
         await super().close()
+
+
+def _media_type(a: discord.Attachment) -> str | None:
+    """The attachment's image type if the models accept it, from its content type or file name."""
+    media_type = (a.content_type or "").split(";")[0].strip()
+    if media_type in IMAGE_EXTENSIONS:
+        return media_type
+    ext = "." + a.filename.lower().rsplit(".", 1)[-1] if "." in a.filename else ""
+    return IMAGE_TYPES.get(".jpg" if ext == ".jpeg" else ext)
+
+
+def _image_attachments(message: discord.Message) -> list[discord.Attachment]:
+    return [a for a in message.attachments if _media_type(a)]

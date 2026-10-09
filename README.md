@@ -22,6 +22,7 @@ It is built for one person or a small group in their own Discord server. Every m
 
 - Everything happens in one Discord channel, as ordinary messages. Each model posts under its own name and avatar through a webhook.
 - A plain message in the channel starts a conversation when none is open. Attach a `.txt`, `.md`, or `.pdf` file to that first message to include it.
+- Images can go on any message, including follow-ups. Every model sees them.
 - Later plain messages are follow-ups. Every model replies to each one in turn, and each sees the replies posted before its own.
 - In the opening round, the models answer without seeing each other, so no model anchors on another's first take.
 - Web search is on for every model, and models cite sources for specific facts. They can also open links you post.
@@ -31,10 +32,11 @@ It is built for one person or a small group in their own Discord server. Every m
 ### Files, long text, and links
 
 > [!IMPORTANT]
-> **The bot reads files only on the first message of a conversation.** A file dragged into the channel or attached to a follow-up is ignored. If the follow-up has no text, it is dropped without a 👀, so nothing happens and nothing tells you why.
+> **The bot reads files only on the first message of a conversation.** Images are the exception. Any other file dragged into the channel or attached to a follow-up is ignored. If the follow-up has no text, it is dropped without a 👀, so nothing happens and nothing tells you why.
 
 - **Long pastes become files.** Discord turns any paste over 2,000 characters (4,000 with Nitro) into a `message.txt` attachment with no message text. Pasted into an open conversation, it is ignored like any other file. To discuss a long document, run `/new` first, then paste or drag it in as the first message.
 - **Only `.txt`, `.md`, and `.pdf` files are read.** Add a line of text to the same message to say what you want the models to do with the file.
+- **Images work on any message.** PNG, JPEG, GIF, and WebP images up to 5 MB each are sent to every model, on the first message or a follow-up, with or without text. A larger image gets a reply saying so, and the message is not recorded. The models see an image for the rest of the conversation, so each one adds to the cost of every later call. Exports show a placeholder line for each image, and the images are kept in `data/images/`.
 - **Links in a message are opened by the models themselves.** Post a link in any message, including a follow-up, and each model opens it with its own web tools: web fetch for Claude, URL context for Gemini, and the search tools of ChatGPT and Muse Spark. The models decide when to open a page, so this is reliable but not guaranteed, and none of them can open a page behind a login or one that needs JavaScript to show its text. Each model reads the page again when it needs it; the page text is not kept in the conversation. `/review url` is different: the bot reads the post and the pages it links to, and gives that text to every model as part of the conversation.
 
 ---

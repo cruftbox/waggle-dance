@@ -9,6 +9,7 @@ from .bot import WaggleBot
 from .config import (
     DB_PATH,
     EXPORTS_DIR,
+    IMAGES_DIR,
     ConfigError,
     ensure_local_files,
     load_dotenv_if_present,
@@ -56,7 +57,7 @@ def main() -> int:
         log.info("MOCK_MODELS is on: no real API calls will be made")
 
     store = Store(DB_PATH)
-    orch = Orchestrator(cfg, providers, store, instructions, settings.owner_name, EXPORTS_DIR)
+    orch = Orchestrator(cfg, providers, store, instructions, settings.owner_name, EXPORTS_DIR, IMAGES_DIR)
     log.info("Loaded %d open sessions", orch.load_open_sessions())
 
     def reload_config() -> None:

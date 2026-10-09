@@ -109,6 +109,18 @@ async def test_image_follow_up_is_answered_and_kept_for_later_turns(orch, provid
     assert f"[image: {follow.id}-1.jpg]" in orch.export_markdown(s)
 
 
+async def test_image_type_comes_from_the_file_not_discords_label(orch, providers):
+    bot = make_bot(orch)
+    await bot.on_message(FakeMessage("Topic"))
+    await settle(bot)
+    # Discord once labeled a PNG as WebP, and Claude rejected the mismatch.
+    follow = FakeMessage("", attachments=[png("shot.webp", content_type="image/webp")])
+    await bot.on_message(follow)
+    await settle(bot)
+    assert orch.current().entries[4].images == [f"{follow.id}-1.webp"]
+    assert images_in(providers["claude"].calls[-1]["messages"])[0]["media_type"] == "image/png"
+
+
 async def test_image_sent_during_a_round_is_queued_with_its_text(orch):
     bot = make_bot(orch)
     await bot.on_message(FakeMessage("Topic"))

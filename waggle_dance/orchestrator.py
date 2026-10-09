@@ -175,7 +175,7 @@ class Orchestrator:
 
     def _image_part(self, session_id: int, name: str) -> dict:
         data = (self.images_dir / str(session_id) / name).read_bytes()
-        return {"type": "image", "media_type": IMAGE_TYPES[Path(name).suffix],
+        return {"type": "image", "media_type": _sniff_image(data) or IMAGE_TYPES[Path(name).suffix],
                 "data": base64.standard_b64encode(data).decode("ascii")}
 
     # Running commands one at a time per session
@@ -516,6 +516,19 @@ def _error_text(exc: Exception) -> str:
         return "timed out"
     msg = str(exc).replace("\n", " ")
     return f"{type(exc).__name__}: {msg[:300]}"
+
+
+def _sniff_image(data: bytes) -> str | None:
+    """The image type from the file's signature. Discord's label can be wrong, and Claude rejects a mismatch."""
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
 
 
 def _image_lines(images: list[str]) -> list[str]:
